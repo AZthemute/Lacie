@@ -21,7 +21,6 @@ class SaltCommand(ModerationBase):
             return
         
         if member.id == 252130669919076352:
-
             chance = random.randrange(1,101)
             if chance != 1:
                 await ctx.send("https://tenor.com/view/you-didnt-say-the-magic-word-ah-ah-nope-wagging-finger-gif-17646607")
