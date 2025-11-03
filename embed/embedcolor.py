@@ -36,7 +36,7 @@ class EmbedColor(commands.Cog):
             return discord.Color(int(result[0], 16))
         return user.accent_color or discord.Color.blurple()
 
-    @app_commands.command(name="setcolor", description="Set your preferred embed color (hex, e.g. #ff66cc).")
+    @app_commands.command(name="setembedcolor", description="Set your preferred embed color (hex, e.g. #ff66cc).")
     async def setcolor(self, interaction: discord.Interaction, hex_color: str):
         if not hex_color.startswith("#") or len(hex_color) != 7:
             await interaction.response.send_message("Please provide a valid hex color in the format: `#rrggbb`.", ephemeral=True)
@@ -59,7 +59,7 @@ class EmbedColor(commands.Cog):
 
         await interaction.response.send_message(f"Your embed color has been set to `{hex_color}`")
 
-    @app_commands.command(name="mycolor", description="View your current embed color.")
+    @app_commands.command(name="myembedcolor", description="View your current embed color.")
     async def mycolor(self, interaction: discord.Interaction):
         color = self.get_user_color(interaction.user)
         hex_code = f"#{color.value:06x}"
