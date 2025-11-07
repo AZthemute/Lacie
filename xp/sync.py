@@ -5,8 +5,6 @@ from moderation.loader import ModerationBase, ADMIN_ROLE_ID
 from .database import get_db
 from .utils import load_config, xp_for_level
 from discord.utils import get
-import asyncio
-from concurrent.futures import ThreadPoolExecutor
 import traceback
 
 class XPSync(commands.Cog):
@@ -14,14 +12,13 @@ class XPSync(commands.Cog):
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        self.executor = ThreadPoolExecutor(max_workers=2)
 
     async def sync_roles_for_user(self, member: discord.Member) -> tuple[int, list[str]]:
         """Sync roles for a member based on their lifetime XP level."""
         config = load_config()
         ROLE_REWARDS = {int(k): int(v) for k, v in config["ROLE_REWARDS"].items()}
 
-        conn, cur = get_db(lifetime=True)
+        conn, cur = get_db("lifetime")
         cur.execute("SELECT level FROM xp WHERE user_id = ?", (str(member.id),))
         row = cur.fetchone()
         conn.close()
@@ -101,107 +98,6 @@ class XPSync(commands.Cog):
                 # If followup fails, try to edit the original response
                 try:
                     await interaction.edit_original_response(content=f"❌ Error syncing roles: {e}")
-                except:
-                    print("Could not send error message to user")
-
-    def _recalc_worker(self, lifetime: bool, user_id: str = None) -> int:
-        """Worker function to recalc levels in executor."""
-        conn, cur = get_db(lifetime)
-        total_updated = 0
-
-        if user_id:
-            cur.execute("SELECT xp FROM xp WHERE user_id = ?", (user_id,))
-            row = cur.fetchone()
-            if row:
-                xp = row[0]
-                new_level = 0
-                while xp >= xp_for_level(new_level + 1):
-                    new_level += 1
-                cur.execute("UPDATE xp SET level = ? WHERE user_id = ?", (new_level, user_id))
-                total_updated += 1
-        else:
-            cur.execute("SELECT user_id, xp FROM xp")
-            rows = cur.fetchall()
-            updates = []
-            for uid, xp in rows:
-                new_level = 0
-                while xp >= xp_for_level(new_level + 1):
-                    new_level += 1
-                updates.append((new_level, uid))
-                total_updated += 1
-            cur.executemany("UPDATE xp SET level = ? WHERE user_id = ?", updates)
-
-        conn.commit()
-        conn.close()
-        return total_updated
-
-    @app_commands.command(name="recalc", description="[Admin] Recalculate levels based on XP.")
-    @app_commands.describe(
-        user="Specific user to recalc (leave empty for all users)",
-        board_type="Which board to recalc"
-    )
-    @app_commands.choices(board_type=[
-        app_commands.Choice(name="Lifetime", value="lifetime"),
-        app_commands.Choice(name="Annual", value="annual"),
-        app_commands.Choice(name="Both", value="both")
-    ])
-    async def recalc(
-        self,
-        interaction: discord.Interaction,
-        user: discord.Member = None,
-        board_type: app_commands.Choice[str] = None
-    ):
-        try:
-            # Send initial response immediately
-            if user:
-                await interaction.response.send_message(f"🔄 Recalculating levels for {user.mention}...")
-            else:
-                await interaction.response.send_message("🔄 Starting recalculation for all users... I'll update you when done!")
-
-            print(f"Started recalc command for user {interaction.user.id}")
-
-            board_value = board_type.value if board_type else "both"
-            boards = [True, False] if board_value == "both" else [board_value == "lifetime"]
-            user_id = str(user.id) if user else None
-
-            async def process():
-                try:
-                    total_updated = 0
-                    for lifetime in boards:
-                        board_name = "Lifetime" if lifetime else "Annual"
-
-                        if not user:
-                            await interaction.followup.send(f"⏳ Processing {board_name} database...")
-
-                        count = await asyncio.get_event_loop().run_in_executor(
-                            self.executor, self._recalc_worker, lifetime, user_id
-                        )
-                        total_updated += count
-
-                        if not user:
-                            await interaction.followup.send(f"✅ {board_name} complete: {count} entries updated")
-
-                    board_text = "Lifetime and Annual" if board_value == "both" else board_value.title()
-                    if user:
-                        await interaction.followup.send(f"✅ Recalculated {board_text} level for {user.mention}")
-                    else:
-                        await interaction.followup.send(
-                            f"🎉 All done! Recalculated {board_text} levels for {total_updated} entries."
-                        )
-                except Exception as e:
-                    print(f"Error in recalc background task: {e}")
-                    traceback.print_exc()
-                    await interaction.followup.send(f"❌ Error during recalculation: {str(e)}")
-
-            self.bot.loop.create_task(process())
-        except Exception as e:
-            print(f"Error in recalc command: {e}")
-            traceback.print_exc()
-            try:
-                await interaction.followup.send(f"❌ Error starting recalculation: {e}")
-            except:
-                try:
-                    await interaction.response.send_message(f"❌ Error starting recalculation: {e}")
                 except:
                     print("Could not send error message to user")
 
