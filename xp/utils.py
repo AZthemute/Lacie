@@ -1,6 +1,10 @@
-import math, random, time, json
+import math
+import random
+import time
+import json
 from discord.utils import get
 from pathlib import Path
+
 CONFIG_PATH = Path("/home/lilacrose/lilacrose.dev2.0/bots/lacie/xp_config.json")
 
 def load_config():
@@ -38,21 +42,27 @@ def can_get_xp(last_message_time: int) -> bool:
 
 async def check_level_up(member, cur, conn, lifetime=True):
     config = load_config()
-    role_rewards = {int(k): v for k,v in config["ROLE_REWARDS"].items()}
+    role_rewards = {int(k): int(v) for k, v in config["ROLE_REWARDS"].items()}
+    
     cur.execute("SELECT xp, level FROM xp WHERE user_id = ?", (str(member.id),))
     row = cur.fetchone()
     if not row:
         return
+    
     xp, level = row
     new_level = level
+    
     while xp >= xp_for_level(new_level + 1):
         new_level += 1
+    
     if new_level > level:
         cur.execute("UPDATE xp SET level = ? WHERE user_id = ?", (new_level, str(member.id)))
         conn.commit()
+        
         if lifetime:
+            # Grant all roles for levels they've reached
             for lvl, role_id in role_rewards.items():
                 if new_level >= lvl:
                     role = get(member.guild.roles, id=role_id)
-                    if role:
+                    if role and role not in member.roles:
                         await member.add_roles(role)

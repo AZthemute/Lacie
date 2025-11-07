@@ -60,7 +60,10 @@ class Leaderboard(commands.Cog):
     @app_commands.choices(
         board_type=[
             app_commands.Choice(name="Lifetime XP", value="lifetime"),
-            app_commands.Choice(name="Annual XP", value="annual")
+            app_commands.Choice(name="Annual XP", value="annual"),
+            app_commands.Choice(name="Monthly XP", value="monthly"),
+            app_commands.Choice(name="Weekly XP", value="weekly"),
+            app_commands.Choice(name="Daily XP", value="daily")
         ]
     )
     async def leaderboard(
@@ -72,10 +75,9 @@ class Leaderboard(commands.Cog):
         await interaction.response.defer(thinking=True)
         
         board_type_value = board_type.value if board_type else "lifetime"
-        board_display_name = board_type.name if board_type else "Lifetime"
+        board_display_name = board_type.name if board_type else "Lifetime XP"
 
-        use_lifetime_db = board_type_value == "lifetime"
-        conn, cur = get_db(use_lifetime_db)
+        conn, cur = get_db(board_type_value)
 
         cur.execute("SELECT user_id, xp, level FROM xp ORDER BY xp DESC")
         all_rows = cur.fetchall()

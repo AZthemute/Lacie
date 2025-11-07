@@ -8,6 +8,7 @@ from typing import Optional
 
 ADMIN_ID = 252130669919076352
 
+
 class DenyModal(discord.ui.Modal, title="Reason for denying suggestion"):
     reason = discord.ui.TextInput(label="Reason (optional)", style=discord.TextStyle.long, required=False, max_length=2000)
 
@@ -28,10 +29,8 @@ class DenyModal(discord.ui.Modal, title="Reason for denying suggestion"):
             await db.execute("UPDATE suggestions SET status = ?, reason = ? WHERE id = ?", ("Denied", reason_text, self.suggestion_id))
             await db.commit()
 
-        # Respond to modal submit
         await interaction.response.send_message(f"❌ Suggestion #{self.suggestion_id} denied.", ephemeral=False)
 
-        # Notify user
         try:
             user = await self.bot.fetch_user(self.user_id)
             dm_note = f"❌ Your suggestion (ID: {self.suggestion_id}) — `{self.suggestion_text}` has been **denied**."
@@ -41,7 +40,6 @@ class DenyModal(discord.ui.Modal, title="Reason for denying suggestion"):
         except:
             pass
 
-        # Notify original channel
         channel = self.bot.get_channel(self.channel_id)
         if channel:
             try:
@@ -52,13 +50,11 @@ class DenyModal(discord.ui.Modal, title="Reason for denying suggestion"):
             except:
                 pass
 
-        # Disable buttons on admin message (if we have the message id)
         if self.admin_message_id:
             try:
                 admin_user = await self.bot.fetch_user(ADMIN_ID)
                 dm = admin_user.dm_channel or await admin_user.create_dm()
                 orig_msg = await dm.fetch_message(self.admin_message_id)
-                # Create a view with same custom_ids but disabled
                 disabled_view = SuggestionButtons(self.bot, suggestion_id=self.suggestion_id, user_id=self.user_id, suggestion_text=self.suggestion_text, channel_id=self.channel_id, admin_message_id=self.admin_message_id, disabled=True)
                 await orig_msg.edit(view=disabled_view)
             except Exception:
@@ -66,8 +62,7 @@ class DenyModal(discord.ui.Modal, title="Reason for denying suggestion"):
 
 
 class SuggestionButtons(discord.ui.View):
-    def __init__(self, bot, suggestion_id=None, user_id=None, suggestion_text=None, channel_id=None, admin_message_id: Optional[int]=None, disabled: bool=False):
-        # timeout=None to make persistent
+    def __init__(self, bot, suggestion_id=None, user_id=None, suggestion_text=None, channel_id=None, admin_message_id: Optional[int] = None, disabled: bool = False):
         super().__init__(timeout=None)
         self.bot = bot
         self.suggestion_id = suggestion_id
@@ -76,26 +71,15 @@ class SuggestionButtons(discord.ui.View):
         self.channel_id = channel_id
         self.admin_message_id = admin_message_id
 
-        # custom_id includes message id so callbacks can find the message later; message id may be None for re-registering but that's fine
         approve_cid = f"suggest_approve_{suggestion_id}_{admin_message_id or 0}"
         deny_cid = f"suggest_deny_{suggestion_id}_{admin_message_id or 0}"
 
-        approve_btn = discord.ui.Button(
-            label="Approve ✅",
-            style=discord.ButtonStyle.success,
-            custom_id=approve_cid
-        )
+        approve_btn = discord.ui.Button(label="Approve ✅", style=discord.ButtonStyle.success, custom_id=approve_cid, disabled=disabled)
         approve_btn.callback = self.approve
-        approve_btn.disabled = disabled
         self.add_item(approve_btn)
 
-        deny_btn = discord.ui.Button(
-            label="Deny ❌",
-            style=discord.ButtonStyle.danger,
-            custom_id=deny_cid
-        )
+        deny_btn = discord.ui.Button(label="Deny ❌", style=discord.ButtonStyle.danger, custom_id=deny_cid, disabled=disabled)
         deny_btn.callback = self.deny
-        deny_btn.disabled = disabled
         self.add_item(deny_btn)
 
     async def approve(self, interaction: discord.Interaction):
@@ -114,19 +98,16 @@ class SuggestionButtons(discord.ui.View):
 
         await interaction.response.send_message(f"✅ Suggestion #{self.suggestion_id} approved.", ephemeral=False)
 
-        # Notify user
         try:
             user = await self.bot.fetch_user(self.user_id)
             await user.send(f"✅ Your suggestion (ID: {self.suggestion_id}) — `{self.suggestion_text}` has been **approved!**")
         except:
             pass
 
-        # Notify original channel
         channel = self.bot.get_channel(self.channel_id)
         if channel:
             await channel.send(f"✅ Suggestion **#{self.suggestion_id}** (`{self.suggestion_text}`) has been **approved!**")
 
-        # Disable buttons after action by editing the admin message (if present)
         if self.admin_message_id:
             try:
                 admin_user = await self.bot.fetch_user(ADMIN_ID)
@@ -135,7 +116,6 @@ class SuggestionButtons(discord.ui.View):
                 disabled_view = SuggestionButtons(self.bot, suggestion_id=self.suggestion_id, user_id=self.user_id, suggestion_text=self.suggestion_text, channel_id=self.channel_id, admin_message_id=self.admin_message_id, disabled=True)
                 await orig_msg.edit(view=disabled_view)
             except Exception:
-                # fallback: try to disable children of THIS view and edit message (if interaction.message exists)
                 for item in self.children:
                     item.disabled = True
                 try:
@@ -152,9 +132,45 @@ class SuggestionButtons(discord.ui.View):
             await interaction.response.send_message("⚠️ This button is no longer active.", ephemeral=True)
             return
 
-        # Show a modal to capture reason
         modal = DenyModal(suggestion_id=self.suggestion_id, user_id=self.user_id, suggestion_text=self.suggestion_text, channel_id=self.channel_id, admin_message_id=self.admin_message_id, bot=self.bot)
         await interaction.response.send_modal(modal)
+
+
+class PaginationView(discord.ui.View):
+    def __init__(self, embeds, user: discord.User):
+        super().__init__(timeout=180)
+        self.embeds = embeds
+        self.user = user
+        self.current_page = 0
+
+        if len(embeds) == 1:
+            self.previous_button.disabled = True
+            self.next_button.disabled = True
+        else:
+            self.previous_button.disabled = True
+
+    async def update_page(self, interaction: discord.Interaction):
+        self.previous_button.disabled = self.current_page == 0
+        self.next_button.disabled = self.current_page == len(self.embeds) - 1
+        await interaction.response.edit_message(embed=self.embeds[self.current_page], view=self)
+
+    @discord.ui.button(label="◀️ Previous", style=discord.ButtonStyle.secondary)
+    async def previous_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user != self.user:
+            await interaction.response.send_message("You can’t control this pagination.", ephemeral=True)
+            return
+        if self.current_page > 0:
+            self.current_page -= 1
+            await self.update_page(interaction)
+
+    @discord.ui.button(label="Next ▶️", style=discord.ButtonStyle.secondary)
+    async def next_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user != self.user:
+            await interaction.response.send_message("You can’t control this pagination.", ephemeral=True)
+            return
+        if self.current_page < len(self.embeds) - 1:
+            self.current_page += 1
+            await self.update_page(interaction)
 
 
 class Suggestion(commands.Cog):
@@ -164,7 +180,6 @@ class Suggestion(commands.Cog):
         self.db = None
 
     async def cog_load(self):
-        # Connect to database and ensure schema (including reason and admin_message_id)
         self.db = await aiosqlite.connect(self.db_path)
         await self.db.execute("""
             CREATE TABLE IF NOT EXISTS suggestions (
@@ -179,16 +194,12 @@ class Suggestion(commands.Cog):
         """)
         await self.db.commit()
 
-        # Register persistent views for pending suggestions so buttons keep working after restarts.
         async with self.db.execute("SELECT id, user_id, suggestion, channel_id, admin_message_id FROM suggestions WHERE status = ?", ("Pending",)) as cursor:
             rows = await cursor.fetchall()
 
         for sid, uid, suggestion_text, channel_id, admin_msg_id in rows:
-            # Only re-register views if we have an admin_message_id (message was sent)
-            # but even if admin_msg_id is None, we register a view with admin_message_id None -> custom_id uses 0
             v = SuggestionButtons(self.bot, suggestion_id=sid, user_id=uid, suggestion_text=suggestion_text, channel_id=channel_id, admin_message_id=admin_msg_id)
             try:
-                # registers the view for persistent components handling
                 self.bot.add_view(v)
             except Exception:
                 pass
@@ -200,7 +211,6 @@ class Suggestion(commands.Cog):
     @app_commands.command(name="suggest", description="Submit a suggestion")
     async def suggest(self, interaction: discord.Interaction, idea: str):
         try:
-            # Insert suggestion into DB
             await self.db.execute(
                 "INSERT INTO suggestions (user_id, suggestion, status, channel_id) VALUES (?, ?, ?, ?)",
                 (interaction.user.id, idea, "Pending", interaction.channel_id)
@@ -210,11 +220,8 @@ class Suggestion(commands.Cog):
             async with self.db.execute("SELECT last_insert_rowid()") as cursor:
                 suggestion_id = (await cursor.fetchone())[0]
 
-            await interaction.response.send_message(
-                f"✅ Suggestion submitted! (ID: **{suggestion_id}**)\n> {idea}"
-            )
+            await interaction.response.send_message(f"✅ Suggestion submitted! (ID: **{suggestion_id}**)\n> {idea}")
 
-            # Send DM to admin with persistent buttons
             try:
                 admin = await self.bot.fetch_user(ADMIN_ID)
                 embed = discord.Embed(
@@ -229,11 +236,9 @@ class Suggestion(commands.Cog):
                 view = SuggestionButtons(self.bot, suggestion_id, interaction.user.id, idea, interaction.channel_id)
                 sent = await admin.send(embed=embed, view=view)
 
-                # store admin message id so we can re-register persistent view for it later and edit it
                 await self.db.execute("UPDATE suggestions SET admin_message_id = ? WHERE id = ?", (sent.id, suggestion_id))
                 await self.db.commit()
 
-                # Register the view so the component interactions will be handled (persistent)
                 try:
                     self.bot.add_view(SuggestionButtons(self.bot, suggestion_id, interaction.user.id, idea, interaction.channel_id, admin_message_id=sent.id))
                 except Exception:
@@ -255,9 +260,7 @@ class Suggestion(commands.Cog):
             await interaction.response.send_message("❌ You don't have permission to do that.", ephemeral=True)
             return
 
-        async with self.db.execute(
-            "SELECT user_id, suggestion, status, channel_id FROM suggestions WHERE id = ?", (suggestion_id,)
-        ) as cursor:
+        async with self.db.execute("SELECT user_id, suggestion, status, channel_id FROM suggestions WHERE id = ?", (suggestion_id,)) as cursor:
             row = await cursor.fetchone()
 
         if not row:
@@ -274,14 +277,12 @@ class Suggestion(commands.Cog):
 
         await interaction.response.send_message(f"✅ Suggestion #{suggestion_id} marked as completed!", ephemeral=False)
 
-        # Notify user
         try:
             user = await self.bot.fetch_user(user_id)
             await user.send(f"🎉 Your suggestion (ID: {suggestion_id}) — `{suggestion_text}` has been **implemented!**")
         except:
             pass
 
-        # Notify original channel
         channel = self.bot.get_channel(channel_id)
         if channel:
             await channel.send(f"🎉 Suggestion **#{suggestion_id}** (`{suggestion_text}`) has been marked as **completed!**")
@@ -295,7 +296,6 @@ class Suggestion(commands.Cog):
         app_commands.Choice(name="Completed", value="Completed")
     ])
     async def suggestion_list(self, interaction: discord.Interaction, status: app_commands.Choice[str]):
-        # This command is intentionally not admin-restricted and not ephemeral (per request).
         selected = status.value if status else "All"
 
         if selected == "All":
@@ -312,15 +312,20 @@ class Suggestion(commands.Cog):
             await interaction.response.send_message("No suggestions found.", ephemeral=False)
             return
 
-        embed = discord.Embed(title=f"📋 Suggestions — {selected}", color=discord.Color.green())
-        for sid, uid, suggestion_text, st in rows:
-            embed.add_field(
-                name=f"ID: {sid} | Status: {st}",
-                value=f"<@{uid}> — {suggestion_text[:100]}{'...' if len(suggestion_text) > 100 else ''}",
-                inline=False
-            )
+        embeds = []
+        per_page = 10
+        for i in range(0, len(rows), per_page):
+            embed = discord.Embed(title=f"📋 Suggestions — {selected} (Page {i//per_page + 1})", color=discord.Color.green())
+            for sid, uid, suggestion_text, st in rows[i:i+per_page]:
+                embed.add_field(
+                    name=f"ID: {sid} | Status: {st}",
+                    value=f"<@{uid}> — {suggestion_text[:100]}{'...' if len(suggestion_text) > 100 else ''}",
+                    inline=False
+                )
+            embeds.append(embed)
 
-        await interaction.response.send_message(embed=embed, ephemeral=False)
+        view = PaginationView(embeds, interaction.user)
+        await interaction.response.send_message(embed=embeds[0], view=view, ephemeral=False)
 
 
 async def setup(bot):
