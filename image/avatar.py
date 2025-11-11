@@ -1,38 +1,372 @@
 import discord
 from discord import app_commands
 from discord.ext import commands
+from PIL import Image, ImageOps, ImageSequence
+import io
+import asyncio
+import aiohttp
+import traceback
+import os
+import numpy as np
 
-class Avatar(commands.Cog):
+class AvatarCommands(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-
-    @app_commands.command(name="avatar", description="Show your avatar or another user's avatar")
+        self.session = None
+        self.explosion_path = os.path.join(os.path.dirname(__file__), "..", "media", "explosion-deltarune.gif")
+        self.obama_path = os.path.join(os.path.dirname(__file__), "..", "media", "obama.jpg")
+    
+    async def cog_load(self):
+        self.session = aiohttp.ClientSession()
+    
+    async def cog_unload(self):
+        if self.session:
+            await self.session.close()
+    
+    def get_avatar_url(self, user, avatar_type_choice):
+        """Helper to get the correct avatar URL based on user choice."""
+        use_global = avatar_type_choice and avatar_type_choice.value == "global"
+        
+        if isinstance(user, discord.Member) and not use_global and user.guild_avatar:
+            return user.display_avatar
+        else:
+            return user.avatar if user.avatar else user.default_avatar
+    
+    # Create the main avatar command group
+    avatar_group = app_commands.Group(name="avatar", description="Avatar manipulation commands")
+    
+    @avatar_group.command(name="show", description="Show your avatar or another user's avatar")
+    @app_commands.describe(
+        user="The user whose avatar to show (defaults to you)",
+        avatar_type="Choose between server or global avatar"
+    )
     @app_commands.choices(
         avatar_type=[
             app_commands.Choice(name="Server Avatar", value="server"),
             app_commands.Choice(name="Global Avatar", value="global")
         ]
     )
-    async def avatar(self, interaction: discord.Interaction, user: discord.User | discord.Member = None, avatar_type: app_commands.Choice[str] = None):
-
+    async def avatar_show(self, interaction: discord.Interaction, user: discord.User = None, avatar_type: app_commands.Choice[str] = None):
         target = user or interaction.user
         use_global = avatar_type and avatar_type.value == "global"
-
-        if isinstance(target, discord.Member) and not use_global and target.avatar:
+        
+        if isinstance(target, discord.Member) and not use_global and target.guild_avatar:
             avatar_url = target.display_avatar.url
-            avatar_type = "Server Avatar"
+            avatar_type_str = "Server Avatar"
         else:
-            avatar_url = target.avatar.url
-            avatar_type = "Global Avatar"
-
+            avatar_url = target.avatar.url if target.avatar else target.default_avatar.url
+            avatar_type_str = "Global Avatar"
+        
+        embed_color = discord.Color.blue()
+        if self.bot.get_cog("EmbedColor"):
+            embed_color = self.bot.get_cog("EmbedColor").get_user_color(interaction.user)
+        
         embed = discord.Embed(
-            title=f"{target.display_name}'s {avatar_type}",
-            color=self.bot.get_cog("EmbedColor").get_user_color(interaction.user)
+            title=f"{target.display_name}'s {avatar_type_str}",
+            color=embed_color
         )
         embed.set_image(url=avatar_url)
         embed.add_field(name="Direct Link", value=f"[Open Avatar]({avatar_url})")
-
+        
         await interaction.response.send_message(embed=embed, ephemeral=False)
+    
+    @avatar_group.command(name="bitcrush", description="Bitcrush a user's avatar to a lower bits-per-pixel value")
+    @app_commands.describe(
+        user="The user whose avatar to bitcrush (defaults to you)",
+        bpp="Bits per pixel (1–8, default 8)",
+        avatar_type="Choose between server or global avatar"
+    )
+    @app_commands.choices(
+        avatar_type=[
+            app_commands.Choice(name="Server Avatar", value="server"),
+            app_commands.Choice(name="Global Avatar", value="global")
+        ]
+    )
+    async def avatar_bitcrush(self, interaction: discord.Interaction, bpp: int = 8, user: discord.User = None, avatar_type: app_commands.Choice[str] = None):
+        user = user or interaction.user
+        
+        if bpp < 1 or bpp > 8:
+            await interaction.response.send_message("Please choose a bit depth between 1 and 8.", ephemeral=True)
+            return
+        
+        try:
+            await interaction.response.defer(thinking=True)
+            
+            avatar = self.get_avatar_url(user, avatar_type)
+            avatar_url = avatar.with_format("png").with_size(512)
+            
+            if not self.session or self.session.closed:
+                self.session = aiohttp.ClientSession()
+            
+            async with self.session.get(str(avatar_url)) as resp:
+                if resp.status != 200:
+                    raise Exception(f"HTTP {resp.status} while fetching avatar")
+                image_bytes = await resp.read()
+            
+            crushed_bytes = await asyncio.to_thread(self._bitcrush_image, image_bytes, bpp)
+            file = discord.File(io.BytesIO(crushed_bytes), filename=f"bitcrushed_{bpp}bit.png")
+            
+            await interaction.followup.send(
+                f"{user.display_name}'s avatar, bitcrushed to {bpp} bit(s) per pixel:",
+                file=file
+            )
+        except Exception as e:
+            traceback.print_exc()
+            if not interaction.response.is_done():
+                await interaction.response.send_message("An error occurred while processing the image.", ephemeral=True)
+            else:
+                await interaction.followup.send("An error occurred while processing the image.", ephemeral=True)
+    
+    def _bitcrush_image(self, image_bytes: bytes, bits: int) -> bytes:
+        img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+        colors = 2 ** bits
+        crushed = img.quantize(colors=colors, method=Image.MEDIANCUT)
+        out = io.BytesIO()
+        crushed.save(out, format="PNG")
+        out.seek(0)
+        return out.getvalue()
+    
+    @avatar_group.command(name="explode", description="Make a user's avatar explode")
+    @app_commands.describe(
+        user="The user whose avatar to explode (defaults to you)",
+        avatar_type="Choose between server or global avatar"
+    )
+    @app_commands.choices(
+        avatar_type=[
+            app_commands.Choice(name="Server Avatar", value="server"),
+            app_commands.Choice(name="Global Avatar", value="global")
+        ]
+    )
+    async def avatar_explode(self, interaction: discord.Interaction, user: discord.User = None, avatar_type: app_commands.Choice[str] = None):
+        user = user or interaction.user
+        
+        try:
+            await interaction.response.defer(thinking=True)
+            
+            avatar = self.get_avatar_url(user, avatar_type)
+            avatar_url = avatar.with_format("png").with_size(256)
+            
+            if not self.session or self.session.closed:
+                self.session = aiohttp.ClientSession()
+            
+            async with self.session.get(str(avatar_url)) as resp:
+                if resp.status != 200:
+                    raise Exception(f"HTTP {resp.status} while fetching avatar")
+                avatar_bytes = await resp.read()
+            
+            exploded_bytes = await asyncio.to_thread(self._explode_avatar, avatar_bytes)
+            file = discord.File(io.BytesIO(exploded_bytes), filename="exploded.gif")
+            
+            await interaction.followup.send(f"{user.display_name} just got exploded!", file=file)
+        except Exception as e:
+            traceback.print_exc()
+            if not interaction.response.is_done():
+                await interaction.response.send_message("An error occurred while processing the explosion.", ephemeral=True)
+            else:
+                await interaction.followup.send("An error occurred while processing the explosion.", ephemeral=True)
+    
+    def _explode_avatar(self, avatar_bytes: bytes) -> bytes:
+        avatar = Image.open(io.BytesIO(avatar_bytes)).convert("RGBA")
+        explosion = Image.open(self.explosion_path)
+        avatar_size = avatar.size
+        frames = []
+        
+        for frame in ImageSequence.Iterator(explosion):
+            frame = frame.convert("RGBA")
+            frame_resized = frame.resize(avatar_size, Image.Resampling.LANCZOS)
+            combined = Image.new("RGBA", avatar_size)
+            combined.paste(avatar, (0, 0))
+            combined.paste(frame_resized, (0, 0), frame_resized)
+            frames.append(combined)
+        
+        out = io.BytesIO()
+        frames[0].save(
+            out,
+            format="GIF",
+            save_all=True,
+            append_images=frames[1:],
+            duration=explosion.info.get("duration", 50),
+            loop=0,
+            disposal=2
+        )
+        out.seek(0)
+        return out.getvalue()
+    
+    @avatar_group.command(name="grayscale", description="Grayscale a user's avatar")
+    @app_commands.describe(
+        user="The user whose avatar to grayscale (defaults to you)",
+        avatar_type="Choose between server or global avatar"
+    )
+    @app_commands.choices(
+        avatar_type=[
+            app_commands.Choice(name="Server Avatar", value="server"),
+            app_commands.Choice(name="Global Avatar", value="global")
+        ]
+    )
+    async def avatar_grayscale(self, interaction: discord.Interaction, user: discord.User = None, avatar_type: app_commands.Choice[str] = None):
+        user = user or interaction.user
+        
+        try:
+            await interaction.response.defer(thinking=True)
+            
+            avatar = self.get_avatar_url(user, avatar_type)
+            avatar_url = avatar.with_format("png").with_size(512)
+            
+            if not self.session or self.session.closed:
+                self.session = aiohttp.ClientSession()
+            
+            async with self.session.get(str(avatar_url)) as resp:
+                if resp.status != 200:
+                    raise Exception(f"HTTP {resp.status} while fetching avatar")
+                image_bytes = await resp.read()
+            
+            grayscaled_bytes = await asyncio.to_thread(self._grayscale_image, image_bytes)
+            file = discord.File(io.BytesIO(grayscaled_bytes), filename="grayscaled.png")
+            
+            await interaction.followup.send(
+                f"{user.display_name}'s avatar, grayscaled:",
+                file=file
+            )
+        except Exception as e:
+            traceback.print_exc()
+            if not interaction.response.is_done():
+                await interaction.response.send_message("An error occurred while processing the image.", ephemeral=True)
+            else:
+                await interaction.followup.send("An error occurred while processing the image.", ephemeral=True)
+    
+    def _grayscale_image(self, image_bytes: bytes) -> bytes:
+        img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+        grayscaled = ImageOps.grayscale(img)
+        out = io.BytesIO()
+        grayscaled.save(out, format="PNG")
+        out.seek(0)
+        return out.getvalue()
+    
+    @avatar_group.command(name="inverse", description="Invert the colors of a user's avatar")
+    @app_commands.describe(
+        user="The user whose avatar to invert (defaults to you)",
+        avatar_type="Choose between server or global avatar"
+    )
+    @app_commands.choices(
+        avatar_type=[
+            app_commands.Choice(name="Server Avatar", value="server"),
+            app_commands.Choice(name="Global Avatar", value="global")
+        ]
+    )
+    async def avatar_inverse(self, interaction: discord.Interaction, user: discord.User = None, avatar_type: app_commands.Choice[str] = None):
+        user = user or interaction.user
+        
+        try:
+            await interaction.response.defer(thinking=True)
+            
+            avatar = self.get_avatar_url(user, avatar_type)
+            avatar_url = avatar.with_format("png").with_size(512)
+            
+            if not self.session or self.session.closed:
+                self.session = aiohttp.ClientSession()
+            
+            async with self.session.get(str(avatar_url)) as resp:
+                if resp.status != 200:
+                    raise Exception(f"HTTP {resp.status} while fetching avatar")
+                image_bytes = await resp.read()
+            
+            inverted_bytes = await asyncio.to_thread(self._invert_image, image_bytes)
+            file = discord.File(io.BytesIO(inverted_bytes), filename="inverted.png")
+            
+            await interaction.followup.send(
+                f"{user.display_name}'s avatar, color-inverted:",
+                file=file
+            )
+        except Exception as e:
+            traceback.print_exc()
+            if not interaction.response.is_done():
+                await interaction.response.send_message("An error occurred while processing the image.", ephemeral=True)
+            else:
+                await interaction.followup.send("An error occurred while processing the image.", ephemeral=True)
+    
+    def _invert_image(self, image_bytes: bytes) -> bytes:
+        img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+        inverted = ImageOps.invert(img)
+        out = io.BytesIO()
+        inverted.save(out, format="PNG")
+        out.seek(0)
+        return out.getvalue()
+    
+    @avatar_group.command(name="obamify", description="Turn a user's avatar into a tile-based Obama mosaic")
+    @app_commands.describe(
+        user="The user whose avatar to obamify (defaults to you)",
+        tile_count="Number of tiles per row/column (default 32), 1-256",
+        avatar_type="Choose between server or global avatar"
+    )
+    @app_commands.choices(
+        avatar_type=[
+            app_commands.Choice(name="Server Avatar", value="server"),
+            app_commands.Choice(name="Global Avatar", value="global")
+        ]
+    )
+    async def avatar_obamify(self, interaction: discord.Interaction, tile_count: int = 32, user: discord.User = None, avatar_type: app_commands.Choice[str] = None):
+        user = user or interaction.user
+        
+        if tile_count > 256 or tile_count < 1:
+            await interaction.response.send_message("Tile count must be 1-256", ephemeral=True)
+            return
+        
+        if not os.path.exists(self.obama_path):
+            await interaction.response.send_message("Error: obama.jpg not found.", ephemeral=True)
+            return
+        
+        try:
+            await interaction.response.defer(thinking=True)
+            
+            avatar = self.get_avatar_url(user, avatar_type)
+            avatar_url = str(avatar.url)
+            
+            avatar_img = await self._fetch_avatar(avatar_url)
+            obama_img = Image.open(self.obama_path).convert("RGB")
+            
+            buf = await asyncio.to_thread(self._generate_mosaic, avatar_img, obama_img, tile_count)
+            
+            await interaction.followup.send(file=discord.File(buf, filename="obama_mosaic.png"))
+        except Exception as e:
+            traceback.print_exc()
+            if not interaction.response.is_done():
+                await interaction.response.send_message(f"Error: {e}", ephemeral=True)
+            else:
+                await interaction.followup.send(f"Error: {e}")
+    
+    async def _fetch_avatar(self, url: str) -> Image.Image:
+        if not self.session or self.session.closed:
+            self.session = aiohttp.ClientSession()
+        
+        async with self.session.get(url) as resp:
+            resp.raise_for_status()
+            data = await resp.read()
+        return Image.open(io.BytesIO(data)).convert("RGB")
+    
+    def _generate_mosaic(self, avatar_img: Image.Image, obama_img: Image.Image, tile_count: int) -> io.BytesIO:
+        obama_img = obama_img.convert("RGB")
+        obama_w, obama_h = obama_img.size
+        tile_w = obama_w // tile_count
+        tile_h = obama_h // tile_count
+        avatar_tile = avatar_img.resize((tile_w, tile_h))
+        output = Image.new("RGB", (tile_w * tile_count, tile_h * tile_count))
+        obama_array = np.array(obama_img)
+        
+        for y in range(tile_count):
+            for x in range(tile_count):
+                tile_array = obama_array[y*tile_h:(y+1)*tile_h, x*tile_w:(x+1)*tile_w]
+                avg_color = tile_array.mean(axis=(0,1))
+                tile = avatar_tile.copy()
+                tile_arr = np.array(tile).astype(np.float32)
+                tint_factor = avg_color / (tile_arr.mean(axis=(0,1)) + 1e-6)
+                tile_arr = np.clip(tile_arr * tint_factor, 0, 255).astype(np.uint8)
+                tile = Image.fromarray(tile_arr)
+                output.paste(tile, (x*tile_w, y*tile_h))
+        
+        buf = io.BytesIO()
+        output.save(buf, format="PNG")
+        buf.seek(0)
+        return buf
 
 async def setup(bot):
-    await bot.add_cog(Avatar(bot))
+    await bot.add_cog(AvatarCommands(bot))
