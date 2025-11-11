@@ -111,30 +111,48 @@ class GitWebhook(commands.Cog):
         if not commits:
             return
         
-        # Build commit list
-        commit_lines = []
-        for commit in commits[:10]:  # Show up to 10 commits
+        # For single commit, use fields for better formatting
+        if len(commits) == 1:
+            commit = commits[0]
             short_sha = commit['id'][:7]
-            message = commit['message'].split('\n')[0]  # First line only
-            if len(message) > 72:
-                message = message[:69] + "..."
+            message = commit['message']
             author = commit['author']['name']
             url = commit['url']
-            commit_lines.append(f"[`{short_sha}`]({url}) {message}")
-        
-        # Create embed
-        embed = discord.Embed(
-            title=f"📝 [{repo_name}:{branch}] {len(commits)} new commit{'s' if len(commits) != 1 else ''}",
-            url=compare_url if compare_url else repo_url,
-            description="\n".join(commit_lines),
-            color=discord.Color.blue()
-        )
-        
-        if len(commits) > 10:
-            embed.description += f"\n\n*...and {len(commits) - 10} more commit(s)*"
-        
-        embed.set_author(name=pusher, icon_url="https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png")
-        embed.set_footer(text="GitHub")
+            
+            embed = discord.Embed(
+                title=f"📝 [{repo_name}:{branch}] New commit",
+                url=compare_url if compare_url else repo_url,
+                color=discord.Color.blue()
+            )
+            embed.add_field(name="Commit", value=f"[`{short_sha}`]({url})", inline=True)
+            embed.add_field(name="Author", value=author, inline=True)
+            embed.add_field(name="Message", value=message, inline=False)
+            embed.set_author(name=pusher, icon_url="https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png")
+            embed.set_footer(text="GitHub")
+        else:
+            # For multiple commits, use description with truncated messages
+            commit_lines = []
+            for commit in commits[:10]:
+                short_sha = commit['id'][:7]
+                message = commit['message'].split('\n')[0]  # First line only
+                if len(message) > 72:
+                    message = message[:69] + "..."
+                author = commit['author']['name']
+                url = commit['url']
+                commit_lines.append(f"[`{short_sha}`]({url}) {message} - {author}")
+            
+            embed = discord.Embed(
+                title=f"📝 [{repo_name}:{branch}] {len(commits)} new commits",
+                url=compare_url if compare_url else repo_url,
+                description="\n".join(commit_lines),
+                color=discord.Color.blue()
+            )
+            
+            if len(commits) > 10:
+                embed.description += f"\n\n*...and {len(commits) - 10} more commit(s)*"
+            
+            embed.set_author(name=pusher, icon_url="https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png")
+            embed.set_footer(text="GitHub")
         
         # Send to Discord
         await channel.send(f"<@{USER_ID_TO_PING}>", embed=embed)
@@ -150,30 +168,48 @@ class GitWebhook(commands.Cog):
         if not commits:
             return
         
-        # Build commit list
-        commit_lines = []
-        for commit in commits[:10]:
+        # For single commit, use fields for better formatting
+        if len(commits) == 1:
+            commit = commits[0]
             short_sha = commit['id'][:7]
-            message = commit['message'].split('\n')[0]
-            if len(message) > 72:
-                message = message[:69] + "..."
+            message = commit['message']
             author = commit['author']['name']
             url = commit['url']
-            commit_lines.append(f"[`{short_sha}`]({url}) {message}")
-        
-        # Create embed
-        embed = discord.Embed(
-            title=f"📝 [{repo_name}:{branch}] {len(commits)} new commit{'s' if len(commits) != 1 else ''}",
-            url=repo_url,
-            description="\n".join(commit_lines),
-            color=0xFC6D26  # GitLab orange
-        )
-        
-        if len(commits) > 10:
-            embed.description += f"\n\n*...and {len(commits) - 10} more commit(s)*"
-        
-        embed.set_author(name=pusher)
-        embed.set_footer(text="GitLab")
+            
+            embed = discord.Embed(
+                title=f"📝 [{repo_name}:{branch}] New commit",
+                url=repo_url,
+                color=0xFC6D26  # GitLab orange
+            )
+            embed.add_field(name="Commit", value=f"[`{short_sha}`]({url})", inline=True)
+            embed.add_field(name="Author", value=author, inline=True)
+            embed.add_field(name="Message", value=message, inline=False)
+            embed.set_author(name=pusher)
+            embed.set_footer(text="GitLab")
+        else:
+            # For multiple commits, use description with truncated messages
+            commit_lines = []
+            for commit in commits[:10]:
+                short_sha = commit['id'][:7]
+                message = commit['message'].split('\n')[0]
+                if len(message) > 72:
+                    message = message[:69] + "..."
+                author = commit['author']['name']
+                url = commit['url']
+                commit_lines.append(f"[`{short_sha}`]({url}) {message} - {author}")
+            
+            embed = discord.Embed(
+                title=f"📝 [{repo_name}:{branch}] {len(commits)} new commits",
+                url=repo_url,
+                description="\n".join(commit_lines),
+                color=0xFC6D26  # GitLab orange
+            )
+            
+            if len(commits) > 10:
+                embed.description += f"\n\n*...and {len(commits) - 10} more commit(s)*"
+            
+            embed.set_author(name=pusher)
+            embed.set_footer(text="GitLab")
         
         # Send to Discord
         await channel.send(f"<@{USER_ID_TO_PING}>", embed=embed)
