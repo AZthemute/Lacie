@@ -158,10 +158,13 @@ class Birthday(commands.Cog):
         
         return filtered[:25]  # Discord limit of 25 at a time
 
-    @app_commands.command(name="setbirthday", description="Set your birthday timezone.")
+    # Create command groups
+    birthday_group = app_commands.Group(name="birthday", description="Manage birthday settings")
+    
+    @birthday_group.command(name="set", description="Set your birthday and timezone")
     @app_commands.describe(date="Your birthday (MM-DD)", timezone="Your timezone, search your city/country to find it!")
     @app_commands.autocomplete(timezone=timezone_autocomplete)
-    async def setbirthday(self, interaction: discord.Interaction, date: str, timezone: str):
+    async def set_birthday(self, interaction: discord.Interaction, date: str, timezone: str):
         try:
             datetime.strptime(date, "%m-%d")
         except ValueError:
@@ -180,8 +183,8 @@ class Birthday(commands.Cog):
 
         await interaction.response.send_message(f"🎂 Birthday set to '{date}' in timezone '{timezone}'!", ephemeral=True)
 
-    @app_commands.command(name="removebirthday", description="Remove your saved birthday.")
-    async def removebirthday(self, interaction: discord.Interaction):
+    @birthday_group.command(name="remove", description="Remove your saved birthday")
+    async def remove_birthday(self, interaction: discord.Interaction):
         conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
         c.execute("DELETE FROM birthdays WHERE user_id = ?", (interaction.user.id,))
@@ -194,29 +197,9 @@ class Birthday(commands.Cog):
         else:
             await interaction.response.send_message("You don't have a birthday set.", ephemeral=True)
 
-    @app_commands.command(name="setbirthdaychannel", description="Set the channel for birthday announcements.")
-    @app_commands.describe(channel="Channel where birthday announcements will be sent.")
-    async def setbirthdaychannel(self, interaction: discord.Interaction, channel: discord.TextChannel):
-        member = interaction.user
-        if not ModerationBase.is_admin():
-            await interaction.response.send_message("You do not have permission to use this command.", ephemeral=True)
-            return
-        
-        conn = sqlite3.connect(self.db_path)
-        c = conn.cursor()
-        c.execute("""
-                    INSERT INTO guild_settings (guild_id, channel_id)
-                    VALUES (?, ?)
-                    ON CONFLICT(guild_id) DO UPDATE SET channel_id=excluded.channel_id
-                    """, (interaction.guild.id, channel.id))
-        conn.commit()
-        conn.close()
-
-        await interaction.response.send_message(f"Birthday announcements will be sent in {channel.mention}")
-
-    @app_commands.command(name="listbirthdays", description="List all birthdays for a specific month.")
+    @birthday_group.command(name="list", description="List all birthdays for a specific month")
     @app_commands.describe(month="Specify a month (1-12) to see birthdays for that month")
-    async def listbirthdays(self, interaction: discord.Interaction, month: int):
+    async def list_birthdays(self, interaction: discord.Interaction, month: int):
         if month < 1 or month > 12:
             await interaction.response.send_message("Invalid month! Please use a number between 1 and 12.", ephemeral=True)
             return
@@ -261,6 +244,24 @@ class Birthday(commands.Cog):
         )
         await interaction.response.send_message(embed=embed)
 
+    @birthday_group.command(name="channel", description="Set the channel for birthday announcements")
+    @app_commands.describe(channel="Channel where birthday announcements will be sent")
+    async def set_channel(self, interaction: discord.Interaction, channel: discord.TextChannel):
+        if not ModerationBase.is_admin():
+            await interaction.response.send_message("You do not have permission to use this command.", ephemeral=True)
+            return
+        
+        conn = sqlite3.connect(self.db_path)
+        c = conn.cursor()
+        c.execute("""
+                    INSERT INTO guild_settings (guild_id, channel_id)
+                    VALUES (?, ?)
+                    ON CONFLICT(guild_id) DO UPDATE SET channel_id=excluded.channel_id
+                    """, (interaction.guild.id, channel.id))
+        conn.commit()
+        conn.close()
+
+        await interaction.response.send_message(f"Birthday announcements will be sent in {channel.mention}")
 
     @tasks.loop(minutes=1)
     async def check_birthdays(self):
