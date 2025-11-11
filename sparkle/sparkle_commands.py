@@ -85,7 +85,7 @@ class SparkleCommands(commands.Cog):
         
         await interaction.response.send_message(embed=embed)
     
-    @sparkle_group.command(name="leaderboard", description="Show server sparkle leaderboard")
+    @sparkle_group.command(name="leaderboard", description="Show server sparkle random leaderbaord")
     @app_commands.describe(limit="Number of users to show (max 20, default 10)")
     async def sparkle_leaderboard(self, interaction: discord.Interaction, limit: int = 10):
         limit = max(1, min(20, limit))
@@ -109,7 +109,7 @@ class SparkleCommands(commands.Cog):
                        (epic + rare + regular) as total
                 FROM sparkles
                 WHERE server_id = ? AND user_id IN ({placeholders})
-                ORDER BY total DESC
+                ORDER BY random()
                 LIMIT ?
             """
             params = [str(interaction.guild.id), *guild_member_ids, limit]
@@ -128,7 +128,7 @@ class SparkleCommands(commands.Cog):
             return
         
         embed = discord.Embed(
-            title=f"✨ {escape_markdown(interaction.guild.name)} Sparkle Leaderboard",
+            title=f"✨ {escape_markdown(interaction.guild.name)} Random Sparkle Leaderboard",
             color=discord.Color.gold()
         )
         
