@@ -1,12 +1,3 @@
-"""
-Discord bot cog that runs a webhook server to receive Git commits.
-The bot receives the webhook from GitHub and posts directly to Discord.
-
-Add to your .env (optional):
-GITHUB_WEBHOOK_SECRET=your_secret_here
-WEBHOOK_PORT=5000
-"""
-
 import discord
 from discord.ext import commands
 from aiohttp import web
