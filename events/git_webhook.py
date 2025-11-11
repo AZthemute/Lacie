@@ -8,7 +8,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-COMMIT_CHANNEL_ID = 876777562599194644
+# Multiple channels to send commit notifications to
+COMMIT_CHANNEL_IDS = [876777562599194644, 1437941632849940563]
 USER_ID_TO_PING = 252130669919076352
 WEBHOOK_SECRET = os.getenv("GITHUB_WEBHOOK_SECRET", "")
 WEBHOOK_PORT = int(os.getenv("WEBHOOK_PORT", 5000))
@@ -30,6 +31,7 @@ class GitWebhook(commands.Cog):
         await self.site.start()
         print(f"✅ Git webhook server started on port {WEBHOOK_PORT}")
         print(f"   Configure GitHub to send webhooks to: http://185.187.170.61:{WEBHOOK_PORT}/webhook")
+        print(f"   Sending notifications to {len(COMMIT_CHANNEL_IDS)} channel(s)")
     
     async def cog_unload(self):
         """Stop the webhook server when cog unloads."""
@@ -74,20 +76,27 @@ class GitWebhook(commands.Cog):
                 print("✅ Received GitHub ping event - webhook is configured correctly!")
                 return web.json_response({"status": "pong"}, status=200)
             
-            # Get the Discord channel
-            channel = self.bot.get_channel(COMMIT_CHANNEL_ID)
-            if not channel:
-                print(f"❌ Channel {COMMIT_CHANNEL_ID} not found!")
-                return web.json_response({"error": "Channel not found"}, status=500)
+            # Get all Discord channels
+            channels = []
+            for channel_id in COMMIT_CHANNEL_IDS:
+                channel = self.bot.get_channel(channel_id)
+                if channel:
+                    channels.append(channel)
+                else:
+                    print(f"⚠️ Channel {channel_id} not found!")
+            
+            if not channels:
+                print(f"❌ No valid channels found!")
+                return web.json_response({"error": "No channels found"}, status=500)
             
             # Handle GitHub push events
             if 'commits' in data and 'repository' in data:
-                await self.handle_github_push(data, channel)
+                await self.handle_github_push(data, channels)
                 return web.json_response({"status": "success"}, status=200)
             
             # Handle GitLab push events
             elif 'project' in data and 'commits' in data:
-                await self.handle_gitlab_push(data, channel)
+                await self.handle_gitlab_push(data, channels)
                 return web.json_response({"status": "success"}, status=200)
             
             print(f"⚠️ Unknown webhook format. Keys in data: {list(data.keys())}")
@@ -99,7 +108,7 @@ class GitWebhook(commands.Cog):
             traceback.print_exc()
             return web.json_response({"error": str(e)}, status=500)
     
-    async def handle_github_push(self, data, channel):
+    async def handle_github_push(self, data, channels):
         """Handle GitHub push webhook."""
         repo_name = data['repository']['full_name']
         repo_url = data['repository']['html_url']
@@ -154,10 +163,14 @@ class GitWebhook(commands.Cog):
             embed.set_author(name=pusher, icon_url="https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png")
             embed.set_footer(text="GitHub")
         
-        # Send to Discord
-        await channel.send(f"<@{USER_ID_TO_PING}>", embed=embed)
+        # Send to all Discord channels
+        for channel in channels:
+            try:
+                await channel.send(f"<@{USER_ID_TO_PING}>", embed=embed)
+            except Exception as e:
+                print(f"❌ Failed to send to channel {channel.id}: {e}")
     
-    async def handle_gitlab_push(self, data, channel):
+    async def handle_gitlab_push(self, data, channels):
         """Handle GitLab push webhook."""
         repo_name = data['project']['path_with_namespace']
         repo_url = data['project']['web_url']
@@ -211,8 +224,12 @@ class GitWebhook(commands.Cog):
             embed.set_author(name=pusher)
             embed.set_footer(text="GitLab")
         
-        # Send to Discord
-        await channel.send(f"<@{USER_ID_TO_PING}>", embed=embed)
+        # Send to all Discord channels
+        for channel in channels:
+            try:
+                await channel.send(f"<@{USER_ID_TO_PING}>", embed=embed)
+            except Exception as e:
+                print(f"❌ Failed to send to channel {channel.id}: {e}")
 
 async def setup(bot):
     await bot.add_cog(GitWebhook(bot))

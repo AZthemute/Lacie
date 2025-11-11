@@ -33,7 +33,7 @@ def parse_timeframe(timeframe: str) -> timedelta:
 class ReminderCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        # ✅ Database will be stored next to this Python file
+        # Database will be stored next to this Python file
         self.db_path = Path(__file__).parent / "reminders.db"
 
     async def setup_database(self):
@@ -54,9 +54,16 @@ class ReminderCog(commands.Cog):
         if not self.check_reminders.is_running():
             self.check_reminders.start()
 
-    @app_commands.command(name="remind", description="Set a reminder and get a DM when it's time.")
-    async def remind(self, interaction: discord.Interaction, timeframe: str, reminder: str):
-        """Example: /remind 1h Take a break"""
+    # Create reminder command group
+    reminder_group = app_commands.Group(name="reminder", description="Manage your reminders")
+
+    @reminder_group.command(name="set", description="Set a reminder and get a DM when it's time")
+    @app_commands.describe(
+        timeframe="How long until reminder (e.g., '10m', '2h', '3d', '1w')",
+        message="What to remind you about"
+    )
+    async def reminder_set(self, interaction: discord.Interaction, timeframe: str, message: str):
+        """Example: /reminder set 1h Take a break"""
         try:
             delta = parse_timeframe(timeframe)
         except ValueError as e:
@@ -66,19 +73,22 @@ class ReminderCog(commands.Cog):
         async with aiosqlite.connect(self.db_path) as db:
             await db.execute(
                 "INSERT INTO reminders (user_id, message, remind_at) VALUES (?, ?, ?)",
-                (interaction.user.id, reminder, remind_at.isoformat()),
+                (interaction.user.id, message, remind_at.isoformat()),
             )
             await db.commit()
 
+        # Format the time nicely
+        time_str = remind_at.strftime("%Y-%m-%d %H:%M UTC")
         await interaction.response.send_message(
-            f"Got it! I'll DM you about **'{reminder}'** in {timeframe}.", ephemeral=True
+            f"✅ Reminder set! I'll DM you about **'{message}'** at {time_str} ({timeframe} from now).",
+            ephemeral=True
         )
 
-    @app_commands.command(name="reminders", description="View your active reminders.")
-    async def reminders(self, interaction: discord.Interaction):
+    @reminder_group.command(name="list", description="View your active reminders")
+    async def reminder_list(self, interaction: discord.Interaction):
         async with aiosqlite.connect(self.db_path) as db:
             async with db.execute(
-                "SELECT message, remind_at FROM reminders WHERE user_id = ? ORDER BY remind_at",
+                "SELECT id, message, remind_at FROM reminders WHERE user_id = ? ORDER BY remind_at",
                 (interaction.user.id,),
             ) as cursor:
                 rows = await cursor.fetchall()
@@ -89,16 +99,100 @@ class ReminderCog(commands.Cog):
             )
 
         embed = discord.Embed(
-            title="Your Reminders",
+            title="📝 Your Reminders",
             color=discord.Color.blurple(),
             timestamp=datetime.now(timezone.utc)
         )
 
-        for message, remind_at in rows:
-            remind_time = datetime.fromisoformat(remind_at).strftime("%Y-%m-%d %H:%M UTC")
-            embed.add_field(name=message, value=f"⏰ {remind_time}", inline=False)
+        for reminder_id, message, remind_at in rows:
+            remind_time = datetime.fromisoformat(remind_at)
+            time_str = remind_time.strftime("%Y-%m-%d %H:%M UTC")
+            
+            # Calculate time remaining
+            now = datetime.now(timezone.utc)
+            time_diff = remind_time - now
+            
+            if time_diff.total_seconds() > 0:
+                days = time_diff.days
+                hours, remainder = divmod(time_diff.seconds, 3600)
+                minutes, _ = divmod(remainder, 60)
+                
+                if days > 0:
+                    time_remaining = f"in {days}d {hours}h"
+                elif hours > 0:
+                    time_remaining = f"in {hours}h {minutes}m"
+                else:
+                    time_remaining = f"in {minutes}m"
+            else:
+                time_remaining = "overdue"
+            
+            embed.add_field(
+                name=f"ID: {reminder_id} - {message}",
+                value=f"⏰ {time_str} ({time_remaining})",
+                inline=False
+            )
 
+        embed.set_footer(text="Use /reminder remove <id> to delete a reminder")
         await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @reminder_group.command(name="remove", description="Remove a specific reminder by ID")
+    @app_commands.describe(reminder_id="The ID of the reminder to remove (from /reminder list)")
+    async def reminder_remove(self, interaction: discord.Interaction, reminder_id: int):
+        async with aiosqlite.connect(self.db_path) as db:
+            # First check if the reminder exists and belongs to the user
+            async with db.execute(
+                "SELECT message FROM reminders WHERE id = ? AND user_id = ?",
+                (reminder_id, interaction.user.id),
+            ) as cursor:
+                row = await cursor.fetchone()
+            
+            if not row:
+                return await interaction.response.send_message(
+                    f"❌ Reminder with ID {reminder_id} not found or doesn't belong to you.",
+                    ephemeral=True
+                )
+            
+            message = row[0]
+            
+            # Delete the reminder
+            await db.execute(
+                "DELETE FROM reminders WHERE id = ? AND user_id = ?",
+                (reminder_id, interaction.user.id),
+            )
+            await db.commit()
+
+        await interaction.response.send_message(
+            f"✅ Removed reminder: **'{message}'**",
+            ephemeral=True
+        )
+
+    @reminder_group.command(name="clear", description="Remove all your active reminders")
+    async def reminder_clear(self, interaction: discord.Interaction):
+        async with aiosqlite.connect(self.db_path) as db:
+            # Check how many reminders the user has
+            async with db.execute(
+                "SELECT COUNT(*) FROM reminders WHERE user_id = ?",
+                (interaction.user.id,),
+            ) as cursor:
+                count = (await cursor.fetchone())[0]
+            
+            if count == 0:
+                return await interaction.response.send_message(
+                    "You have no active reminders to clear!",
+                    ephemeral=True
+                )
+            
+            # Delete all reminders for this user
+            await db.execute(
+                "DELETE FROM reminders WHERE user_id = ?",
+                (interaction.user.id,),
+            )
+            await db.commit()
+
+        await interaction.response.send_message(
+            f"✅ Cleared all {count} reminder(s)!",
+            ephemeral=True
+        )
 
     @tasks.loop(seconds=60)
     async def check_reminders(self):
@@ -115,7 +209,13 @@ class ReminderCog(commands.Cog):
                 user = self.bot.get_user(user_id)
                 if user:
                     try:
-                        await user.send(f"⏰ **Reminder:** {message}")
+                        embed = discord.Embed(
+                            title="⏰ Reminder!",
+                            description=message,
+                            color=discord.Color.blue(),
+                            timestamp=datetime.now(timezone.utc)
+                        )
+                        await user.send(embed=embed)
                     except discord.Forbidden:
                         pass  # user has DMs disabled or bot blocked
 
