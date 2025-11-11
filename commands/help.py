@@ -3,6 +3,7 @@ from discord import app_commands
 from discord.ext import commands
 from typing import Dict, List
 
+
 class HelpView(discord.ui.View):
 
     def __init__(self, bot, cog_commands: Dict[str, List[str]]):
@@ -20,7 +21,9 @@ class HelpView(discord.ui.View):
             "suggestion": {"name": "Suggestions", "emoji": "💡"},
             "birthday": {"name": "Birthdays", "emoji": "🎂"},
             "embed": {"name": "Embed", "emoji": "📝"},
-            "profiles": {"name": "Profiles", "emoji": "👤"}
+            "embeds": {"name": "Embeds", "emoji": "📜"},
+            "profiles": {"name": "Profiles", "emoji": "👤"},
+            "wordle": {"name": "Wordle", "emoji": "🟩"},
         }
 
         self.add_cog_buttons()
@@ -34,13 +37,15 @@ class HelpView(discord.ui.View):
         )
         home_button.callback = self.show_home
         self.add_item(home_button)
-    
+
     def add_cog_buttons(self):
-        """Add buttons for each cog category"""
         row = 0
         col = 0
-
-        for cog_key in ["commands", "moderation", "xp", "sparkle", "image", "suggestion", "birthday", "embed", "profiles"]:
+        for cog_key in [
+            "commands", "moderation", "xp", "sparkle",
+            "image", "suggestion", "birthday",
+            "embed", "embeds", "profiles", "wordle"
+        ]:
             if cog_key in self.cog_commands and self.cog_commands[cog_key]:
                 info = self.cog_info.get(cog_key, {"emoji": "📦", "name": cog_key.title()})
 
@@ -52,7 +57,6 @@ class HelpView(discord.ui.View):
                     row=row
                 )
 
-                # Use default argument to capture the current value
                 def make_callback(cog_name=cog_key):
                     async def callback(interaction: discord.Interaction):
                         try:
@@ -66,7 +70,7 @@ class HelpView(discord.ui.View):
                             except:
                                 pass
                     return callback
-                
+
                 button.callback = make_callback()
                 self.add_item(button)
 
@@ -74,26 +78,14 @@ class HelpView(discord.ui.View):
                 if col >= 5:
                     col = 0
                     row += 1
-    
+
     async def show_home(self, interaction: discord.Interaction):
         try:
             self.current_page = "home"
             embed = self.create_home_embed(interaction)
             await interaction.response.edit_message(embed=embed, view=self)
         except discord.errors.InteractionResponded:
-            # If already responded, use followup
-            try:
-                await interaction.followup.edit_message(interaction.message.id, embed=embed, view=self)
-            except Exception as e2:
-                print(f"Followup edit error: {e2}")
-        except Exception as e:
-            print(f"Show home error: {e}")
-            import traceback
-            traceback.print_exc()
-            try:
-                await interaction.response.send_message(f"Error: {e}", ephemeral=True)
-            except:
-                pass
+            await interaction.followup.edit_message(interaction.message.id, embed=embed, view=self)
 
     async def show_cog(self, interaction: discord.Interaction, cog_name: str):
         try:
@@ -101,22 +93,9 @@ class HelpView(discord.ui.View):
             embed = self.create_cog_embed(interaction, cog_name)
             await interaction.response.edit_message(embed=embed, view=self)
         except discord.errors.InteractionResponded:
-            # If already responded, use followup
-            try:
-                await interaction.followup.edit_message(interaction.message.id, embed=embed, view=self)
-            except Exception as e2:
-                print(f"Followup edit error: {e2}")
-        except Exception as e:
-            print(f"Show cog error for {cog_name}: {e}")
-            import traceback
-            traceback.print_exc()
-            try:
-                await interaction.response.send_message(f"Error: {e}", ephemeral=True)
-            except:
-                pass
+            await interaction.followup.edit_message(interaction.message.id, embed=embed, view=self)
 
     def create_home_embed(self, interaction: discord.Interaction) -> discord.Embed:
-        # Get user color from EmbedColor cog
         color = discord.Color.purple()
         try:
             embed_color_cog = self.bot.get_cog("EmbedColor")
@@ -145,13 +124,11 @@ class HelpView(discord.ui.View):
         )
 
         embed.set_footer(text="Created with 💜 by Lilac Aria Rose")
-
         return embed
-    
+
     def create_cog_embed(self, interaction: discord.Interaction, cog_name: str) -> discord.Embed:
         info = self.cog_info.get(cog_name, {"emoji": "📦", "name": cog_name.title()})
 
-        # Get user color from EmbedColor cog
         color = discord.Color.blue()
         try:
             embed_color_cog = self.bot.get_cog("EmbedColor")
@@ -168,12 +145,10 @@ class HelpView(discord.ui.View):
 
         if cog_name in self.cog_commands:
             commands_list = "\n".join(sorted(set(self.cog_commands[cog_name])))
-
             if len(commands_list) > 4096:
                 chunks = []
                 current_chunk = []
                 current_length = 0
-
                 for cmd in sorted(set(self.cog_commands[cog_name])):
                     if current_length + len(cmd) + 1 > 1024:
                         chunks.append("\n".join(current_chunk))
@@ -182,10 +157,8 @@ class HelpView(discord.ui.View):
                     else:
                         current_chunk.append(cmd)
                         current_length += len(cmd) + 1
-                
                 if current_chunk:
                     chunks.append("\n".join(current_chunk))
-
                 for i, chunk in enumerate(chunks):
                     field_name = "Commands" if i == 0 else f"Commands (cont. {i+1})"
                     embed.add_field(name=field_name, value=chunk, inline=False)
@@ -194,13 +167,15 @@ class HelpView(discord.ui.View):
         else:
             embed.description = "No commands found in this category."
 
-        embed.set_footer(text=f"Use the buttons to navigate • Total: {len(set(self.cog_commands.get(cog_name, [])))} commands")
-
+        embed.set_footer(
+            text=f"Use the buttons to navigate • Total: {len(set(self.cog_commands.get(cog_name, [])))} commands"
+        )
         return embed
-    
+
     async def on_timeout(self):
         for item in self.children:
             item.disabled = True
+
 
 class Help(commands.Cog):
     def __init__(self, bot):
@@ -208,68 +183,48 @@ class Help(commands.Cog):
 
     @app_commands.command(name="help", description="Shows all available commands organized by category")
     async def help_command(self, interaction: discord.Interaction):
-
         try:
             await interaction.response.defer(thinking=True)
-
             cog_commands = {}
-            
-            # Track primary command names to avoid duplicates from aliases
-            seen_commands = {}
 
-            # Process slash commands
+            # Process slash commands safely
             for command in self.bot.tree.get_commands():
-                cog = command.binding
+                cog = getattr(command, "binding", None)  # <-- FIX HERE
                 if cog:
-                    # Get the folder from the cog's module path
                     module = cog.__class__.__module__
-                    folder = module.split('.')[0] if '.' in module else "other"
-                    
-                    if folder == "events":
-                        continue
-                    
-                    if folder not in cog_commands:
-                        cog_commands[folder] = []
-                    
-                    cmd_desc = command.description or "No description"
-                    cog_commands[folder].append(f"`/{command.name}` - {cmd_desc}")
-                else:
-                    if "other" not in cog_commands:
-                        cog_commands["other"] = []
-                    cmd_desc = command.description or "No description"
-                    cog_commands["other"].append(f"`/{command.name}` - {cmd_desc}")
-
-            # Process prefix commands (only show the primary command, not aliases)
-            for cmd_name, command in self.bot.all_commands.items():
-                # Skip if this is an alias (check if command.name != cmd_name)
-                if command.name != cmd_name:
-                    continue
-                
-                if command.cog:
-                    module = command.cog.__class__.__module__
-                    folder = module.split('.')[0] if '.' in module else "other"
+                    folder = module.split(".")[0] if "." in module else "other"
                 else:
                     folder = "other"
 
                 if folder == "events":
                     continue
 
-                if folder not in cog_commands:
-                    cog_commands[folder] = []
+                cog_commands.setdefault(folder, [])
+                cmd_desc = command.description or "No description"
+                cog_commands[folder].append(f"`/{command.name}` - {cmd_desc}")
 
+            # Process prefix commands
+            for cmd_name, command in self.bot.all_commands.items():
+                if command.name != cmd_name:
+                    continue
+
+                if command.cog:
+                    module = command.cog.__class__.__module__
+                    folder = module.split(".")[0] if "." in module else "other"
+                else:
+                    folder = "other"
+
+                if folder == "events":
+                    continue
+
+                cog_commands.setdefault(folder, [])
                 cmd_desc = command.help or command.brief or "No description"
-                
-                # Show aliases in the description if they exist
-                alias_text = ""
-                if command.aliases:
-                    alias_text = f" (aliases: {', '.join(f'!{a}' for a in command.aliases)})"
-                
+                alias_text = f" (aliases: {', '.join(f'!{a}' for a in command.aliases)})" if command.aliases else ""
                 cog_commands[folder].append(f"`!{command.name}`{alias_text} - {cmd_desc}")
 
             view = HelpView(self.bot, cog_commands)
             embed = view.create_home_embed(interaction)
-            
-            # Debug: Print what cogs were found
+
             print(f"DEBUG: Found cogs: {list(cog_commands.keys())}")
             for cog_name, cmds in cog_commands.items():
                 print(f"  {cog_name}: {len(set(cmds))} unique commands")
@@ -278,21 +233,17 @@ class Help(commands.Cog):
 
         except Exception as e:
             import traceback
-            error_msg = ''.join(traceback.format_exception(type(e), e, e.__traceback__))
-            
+            error_msg = "".join(traceback.format_exception(type(e), e, e.__traceback__))
             error_embed = discord.Embed(
                 title="❌ Error in /help command",
                 description=f"```py\n{error_msg[:4000]}```",
                 color=discord.Color.red()
             )
-            
             try:
                 await interaction.followup.send(embed=error_embed)
             except:
-                try:
-                    await interaction.response.send_message(embed=error_embed)
-                except:
-                    pass
+                await interaction.response.send_message(embed=error_embed)
+
 
 async def setup(bot):
     await bot.add_cog(Help(bot))
