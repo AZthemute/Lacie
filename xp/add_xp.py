@@ -1,9 +1,17 @@
 import time
+import discord
 from .database import get_db
 from .utils import get_multiplier, random_xp, can_get_xp, check_level_up
 from .exclude_channels import is_channel_excluded
 
-async def add_xp(member):
+async def add_xp(user):
+    # Only process XP for guild members, not DM users
+    if not isinstance(user, discord.Member):
+        return
+    
+    member = user
+    
+    # Check if message is in an excluded channel
     if hasattr(member, "guild"):
         last_message = getattr(member, "last_message", None)
         if last_message and getattr(last_message, "channel", None):

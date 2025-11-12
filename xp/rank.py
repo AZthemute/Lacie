@@ -27,6 +27,9 @@ class Rank(commands.Cog):
         board_type: app_commands.Choice[str] = None
     ):
         try:
+            # Defer the response immediately to prevent timeout
+            await interaction.response.defer()
+            
             user = user or interaction.user
             board_type_value = board_type.value if board_type else "lifetime"
             lifetime = board_type_value == "lifetime"
@@ -44,7 +47,7 @@ class Rank(commands.Cog):
 
             if not row:
                 conn.close()
-                await interaction.response.send_message(f"{user.display_name} has no XP yet.", ephemeral=True)
+                await interaction.followup.send(f"{user.display_name} has no XP yet.", ephemeral=True)
                 return
 
             xp, level, last_msg = row
@@ -118,14 +121,23 @@ class Rank(commands.Cog):
 
             embed.set_footer(text=f"Viewing {board_type_value.title()} board")
 
-            await interaction.response.send_message(embed=embed)
+            # Use followup instead of response since we deferred
+            await interaction.followup.send(embed=embed)
 
         except Exception as e:
             print(f"Rank command error: {e}")
             traceback.print_exc()
-            await interaction.response.send_message(
-                "An error occurred while fetching rank data.", ephemeral=True
-            )
+            try:
+                if interaction.response.is_done():
+                    await interaction.followup.send(
+                        "An error occurred while fetching rank data.", ephemeral=True
+                    )
+                else:
+                    await interaction.response.send_message(
+                        "An error occurred while fetching rank data.", ephemeral=True
+                    )
+            except:
+                pass
 
 async def setup(bot):
     await bot.add_cog(Rank(bot))
