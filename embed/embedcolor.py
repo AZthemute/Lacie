@@ -1,9 +1,11 @@
 import discord
 import sqlite3
+import os
 from discord.ext import commands
 from discord import app_commands
 
-DB_PATH = "embed_colors.db"
+# Get the directory where this file is located
+DB_PATH = os.path.join(os.path.dirname(__file__), "embed_colors.db")
 
 class EmbedColor(commands.Cog):
     def __init__(self, bot):
