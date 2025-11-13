@@ -61,8 +61,14 @@ class EmbedColor(commands.Cog):
         db.commit()
         db.close()
         
-        await interaction.response.send_message(f"Your embed color has been set to `{hex_color}`")
+        embed = discord.Embed(
+            title="✅ Embed Color Updated",
+            description=f"Your embed color has been set to `{hex_color}`.\nHere's how it looks!",
+            color=discord.Color(int(hex_color[1:], 16))
+        )
     
+        await interaction.response.send_message(embed=embed)
+        
     @embed_group.command(name="view", description="View your current embed color")
     async def view_color(self, interaction: discord.Interaction):
         color = self.get_user_color(interaction.user)
