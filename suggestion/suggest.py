@@ -157,7 +157,7 @@ class PaginationView(discord.ui.View):
     @discord.ui.button(label="◀️ Previous", style=discord.ButtonStyle.secondary)
     async def previous_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user != self.user:
-            await interaction.response.send_message("You can’t control this pagination.", ephemeral=True)
+            await interaction.response.send_message("You can't control this pagination.", ephemeral=True)
             return
         if self.current_page > 0:
             self.current_page -= 1
@@ -166,7 +166,7 @@ class PaginationView(discord.ui.View):
     @discord.ui.button(label="Next ▶️", style=discord.ButtonStyle.secondary)
     async def next_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user != self.user:
-            await interaction.response.send_message("You can’t control this pagination.", ephemeral=True)
+            await interaction.response.send_message("You can't control this pagination.", ephemeral=True)
             return
         if self.current_page < len(self.embeds) - 1:
             self.current_page += 1
@@ -253,6 +253,48 @@ class Suggestion(commands.Cog):
         except Exception as e:
             print(f"Error in suggest command: {e}")
             await interaction.followup.send(f"❌ An error occurred: {e}")
+
+    @app_commands.command(name="suggestion_view", description="View full details of a suggestion")
+    async def suggestion_view(self, interaction: discord.Interaction, suggestion_id: int):
+
+        await interaction.response.defer(thinking=True)
+
+        async with self.db.execute("SELECT user_id, suggestion, status, channel_id, reason FROM suggestions WHERE id = ?", (suggestion_id,)) as cursor:
+            row = await cursor.fetchone()
+
+        if not row:
+            await interaction.followup.send("❌ Suggestion not found.")
+            return
+
+        user_id, suggestion_text, status, channel_id, reason = row
+
+        # Create status color mapping
+        status_colors = {
+            "Pending": discord.Color.yellow(),
+            "Approved": discord.Color.green(),
+            "Denied": discord.Color.red(),
+            "Completed": discord.Color.blue()
+        }
+        
+        embed = discord.Embed(
+            title=f"Suggestion #{suggestion_id}",
+            description=suggestion_text,
+            color=status_colors.get(status, discord.Color.greyple())
+        )
+        
+        try:
+            user = await self.bot.fetch_user(user_id)
+            embed.add_field(name="Suggested by", value=f"{user.mention} ({user})", inline=True)
+        except:
+            embed.add_field(name="Suggested by", value=f"<@{user_id}>", inline=True)
+        
+        embed.add_field(name="Status", value=status, inline=True)
+        embed.add_field(name="Channel", value=f"<#{channel_id}>", inline=True)
+        
+        if reason:
+            embed.add_field(name="Reason", value=reason, inline=False)
+        
+        await interaction.followup.send(embed=embed)
 
     @app_commands.command(name="suggestion_complete", description="Mark an approved suggestion as completed")
     async def suggestion_complete(self, interaction: discord.Interaction, suggestion_id: int):
