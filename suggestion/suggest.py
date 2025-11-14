@@ -254,7 +254,9 @@ class Suggestion(commands.Cog):
             print(f"Error in suggest command: {e}")
             await interaction.followup.send(f"❌ An error occurred: {e}")
 
-    @app_commands.command(name="suggestion_view", description="View full details of a suggestion")
+    suggestion = app_commands.Group(name="suggestion", description="Manage suggestions")
+
+    @suggestion.command(name="view", description="View full details of a suggestion")
     async def suggestion_view(self, interaction: discord.Interaction, suggestion_id: int):
 
         await interaction.response.defer(thinking=True)
@@ -296,7 +298,7 @@ class Suggestion(commands.Cog):
         
         await interaction.followup.send(embed=embed)
 
-    @app_commands.command(name="suggestion_complete", description="Mark an approved suggestion as completed")
+    @suggestion.command(name="complete", description="Mark an approved suggestion as completed")
     async def suggestion_complete(self, interaction: discord.Interaction, suggestion_id: int):
 
         await interaction.response.defer(thinking=True)
@@ -332,7 +334,7 @@ class Suggestion(commands.Cog):
         if channel:
             await channel.send(f"🎉 Suggestion **#{suggestion_id}** (`{suggestion_text}`) has been marked as **completed!**")
 
-    @app_commands.command(name="suggestion_list", description="List suggestions (use status filter to narrow)")
+    @suggestion.command(name="list", description="List suggestions (use status filter to narrow)")
     @app_commands.choices(status=[
         app_commands.Choice(name="All", value="All"),
         app_commands.Choice(name="Pending", value="Pending"),
