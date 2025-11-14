@@ -210,6 +210,9 @@ class Suggestion(commands.Cog):
 
     @app_commands.command(name="suggest", description="Submit a suggestion")
     async def suggest(self, interaction: discord.Interaction, idea: str):
+
+        await interaction.response.defer(thinking=True)
+
         try:
             await self.db.execute(
                 "INSERT INTO suggestions (user_id, suggestion, status, channel_id) VALUES (?, ?, ?, ?)",
@@ -220,7 +223,7 @@ class Suggestion(commands.Cog):
             async with self.db.execute("SELECT last_insert_rowid()") as cursor:
                 suggestion_id = (await cursor.fetchone())[0]
 
-            await interaction.response.send_message(f"✅ Suggestion submitted! (ID: **{suggestion_id}**)\n> {idea}")
+            await interaction.followup.send(f"✅ Suggestion submitted! (ID: **{suggestion_id}**)\n> {idea}")
 
             try:
                 admin = await self.bot.fetch_user(ADMIN_ID)
@@ -249,33 +252,33 @@ class Suggestion(commands.Cog):
 
         except Exception as e:
             print(f"Error in suggest command: {e}")
-            if not interaction.response.is_done():
-                await interaction.response.send_message(f"❌ An error occurred: {e}", ephemeral=False)
-            else:
-                await interaction.followup.send(f"❌ An error occurred: {e}", ephemeral=False)
+            await interaction.followup.send(f"❌ An error occurred: {e}")
 
     @app_commands.command(name="suggestion_complete", description="Mark an approved suggestion as completed")
     async def suggestion_complete(self, interaction: discord.Interaction, suggestion_id: int):
+
+        await interaction.response.defer(thinking=True)
+
         if interaction.user.id != ADMIN_ID:
-            await interaction.response.send_message("❌ You don't have permission to do that.", ephemeral=True)
+            await interaction.followup.send("❌ You don't have permission to do that.")
             return
 
         async with self.db.execute("SELECT user_id, suggestion, status, channel_id FROM suggestions WHERE id = ?", (suggestion_id,)) as cursor:
             row = await cursor.fetchone()
 
         if not row:
-            await interaction.response.send_message("❌ Suggestion not found.", ephemeral=True)
+            await interaction.followup.send("❌ Suggestion not found.")
             return
 
         user_id, suggestion_text, status, channel_id = row
         if status != "Approved":
-            await interaction.response.send_message("⚠️ This suggestion must be approved before marking as complete.", ephemeral=True)
+            await interaction.followup.send("⚠️ This suggestion must be approved before marking as complete.")
             return
 
         await self.db.execute("UPDATE suggestions SET status = ? WHERE id = ?", ("Completed", suggestion_id))
         await self.db.commit()
 
-        await interaction.response.send_message(f"✅ Suggestion #{suggestion_id} marked as completed!", ephemeral=False)
+        await interaction.followup.send(f"✅ Suggestion #{suggestion_id} marked as completed!")
 
         try:
             user = await self.bot.fetch_user(user_id)
@@ -296,6 +299,9 @@ class Suggestion(commands.Cog):
         app_commands.Choice(name="Completed", value="Completed")
     ])
     async def suggestion_list(self, interaction: discord.Interaction, status: app_commands.Choice[str]):
+
+        await interaction.response.defer(thinking=True)
+
         selected = status.value if status else "All"
 
         if selected == "All":
@@ -309,7 +315,7 @@ class Suggestion(commands.Cog):
             rows = await cursor.fetchall()
 
         if not rows:
-            await interaction.response.send_message("No suggestions found.", ephemeral=False)
+            await interaction.followup.send("No suggestions found.")
             return
 
         embeds = []
@@ -325,7 +331,7 @@ class Suggestion(commands.Cog):
             embeds.append(embed)
 
         view = PaginationView(embeds, interaction.user)
-        await interaction.response.send_message(embed=embeds[0], view=view, ephemeral=False)
+        await interaction.followup.send(embed=embeds[0], view=view)
 
 
 async def setup(bot):
