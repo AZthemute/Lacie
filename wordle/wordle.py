@@ -78,6 +78,8 @@ class Wordle(commands.Cog):
     def compare_guess(self, guess, target):
         """
         Compare a guess to the target word and return color results.
+        Properly handles duplicate letters - only marks as many yellows/greens
+        as actually exist in the target word.
         
         Args:
             guess: The user's guessed word
@@ -86,14 +88,21 @@ class Wordle(commands.Cog):
         Returns:
             List of colors: "green" (correct position), "yellow" (wrong position), "gray" (not in word)
         """
-        result = []
+        result = ["gray"] * 5
+        target_chars = list(target)
+        
+        # First pass: mark all greens (correct position)
         for i, ch in enumerate(guess):
             if ch == target[i]:
-                result.append("green")
-            elif ch in target:
-                result.append("yellow")
-            else:
-                result.append("gray")
+                result[i] = "green"
+                target_chars[i] = None  # Mark this letter as used
+        
+        # Second pass: mark yellows (wrong position)
+        for i, ch in enumerate(guess):
+            if result[i] == "gray" and ch in target_chars:
+                result[i] = "yellow"
+                target_chars[target_chars.index(ch)] = None  # Mark this letter as used
+        
         return result
     
     def get_keyboard_display(self, guesses, target):
