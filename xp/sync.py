@@ -6,6 +6,7 @@ from .database import get_db
 from .utils import load_config, xp_for_level
 from discord.utils import get
 import traceback
+import asyncio
 
 class XPSync(commands.Cog):
     """Sync XP role rewards for users."""
@@ -18,10 +19,16 @@ class XPSync(commands.Cog):
         config = load_config()
         ROLE_REWARDS = {int(k): int(v) for k, v in config["ROLE_REWARDS"].items()}
 
-        conn, cur = get_db("lifetime")
-        cur.execute("SELECT level FROM xp WHERE user_id = ?", (str(member.id),))
-        row = cur.fetchone()
-        conn.close()
+        # Run database operation in executor to avoid blocking
+        def get_level():
+            conn, cur = get_db("lifetime")
+            cur.execute("SELECT level FROM xp WHERE user_id = ?", (str(member.id),))
+            row = cur.fetchone()
+            conn.close()
+            return row
+
+        loop = asyncio.get_event_loop()
+        row = await loop.run_in_executor(None, get_level)
 
         if not row:
             return (0, [])
@@ -37,8 +44,10 @@ class XPSync(commands.Cog):
                     if member.guild.me.top_role <= role:
                         continue
                     try:
-                        await member.add_roles(role)
+                        await member.add_roles(role, reason=f"XP Level {level} role sync")
                         roles_added.append(role.name)
+                        # Small delay between role additions to avoid rate limits
+                        await asyncio.sleep(0.5)
                     except discord.Forbidden:
                         print(f"Cannot assign {role.name} to {member} - missing permissions")
                     except discord.HTTPException as e:
@@ -54,52 +63,76 @@ class XPSync(commands.Cog):
         user: discord.User | None = None,
     ):
         try:
-            await interaction.response.defer()  # Bot is thinking
-            print(f"Deferred sync interaction for user {interaction.user.id}")
+            # Defer immediately - this is critical
+            await interaction.response.defer(ephemeral=False)
+            print(f"[SYNC] Deferred interaction for user {interaction.user.id}")
 
-            # Fetch target member properly
-            try:
-                target_member = await interaction.guild.fetch_member(user.id) if user else await interaction.guild.fetch_member(interaction.user.id)
-            except discord.NotFound:
-                return await interaction.followup.send("User is not in this server.")
-            except discord.HTTPException as e:
-                return await interaction.followup.send(f"Error fetching member: {e}")
-
-            # If syncing someone else, check admin role
+            # Determine target user
+            target_user = user if user else interaction.user
+            
+            # If syncing someone else, check admin role first (before fetching member)
             if user and user.id != interaction.user.id:
                 try:
-                    member = await interaction.guild.fetch_member(interaction.user.id)
-                except Exception:
-                    return await interaction.followup.send("Could not find your member object.")
+                    requester = interaction.guild.get_member(interaction.user.id)
+                    if not requester:
+                        requester = await interaction.guild.fetch_member(interaction.user.id)
+                except Exception as e:
+                    print(f"[SYNC] Error fetching requester: {e}")
+                    return await interaction.followup.send("❌ Could not verify your permissions.", ephemeral=True)
 
-                has_admin_role = any(role.id == ADMIN_ROLE_ID for role in member.roles)
+                has_admin_role = any(role.id == ADMIN_ROLE_ID for role in requester.roles)
                 if not has_admin_role:
-                    return await interaction.followup.send("You don't have permission to sync roles for other users.")
+                    return await interaction.followup.send("❌ You don't have permission to sync roles for other users.", ephemeral=True)
 
-            # Sync roles
-            level, roles_added = await self.sync_roles_for_user(target_member)
+            # Fetch target member
+            try:
+                target_member = interaction.guild.get_member(target_user.id)
+                if not target_member:
+                    print(f"[SYNC] Member not in cache, fetching from API")
+                    target_member = await interaction.guild.fetch_member(target_user.id)
+            except discord.NotFound:
+                return await interaction.followup.send(f"❌ {target_user.mention} is not in this server.", ephemeral=True)
+            except discord.HTTPException as e:
+                print(f"[SYNC] HTTP error fetching member: {e}")
+                return await interaction.followup.send(f"❌ Error fetching member: {e}", ephemeral=True)
+
+            print(f"[SYNC] Starting role sync for {target_member.id}")
+            
+            # Sync roles with timeout protection
+            try:
+                level, roles_added = await asyncio.wait_for(
+                    self.sync_roles_for_user(target_member),
+                    timeout=25.0  # 25 seconds to stay under Discord's 30s limit
+                )
+            except asyncio.TimeoutError:
+                print(f"[SYNC] Timeout during role sync for {target_member.id}")
+                return await interaction.followup.send("❌ Role sync took too long. Please try again or contact an admin.", ephemeral=True)
+
+            print(f"[SYNC] Completed sync for {target_member.id}: Level {level}, Roles added: {roles_added}")
+
+            # Send response
             if level == 0:
                 await interaction.followup.send(f"{target_member.mention} has no lifetime XP recorded.")
             elif roles_added:
                 await interaction.followup.send(
-                    f"Synced roles for {target_member.mention} (Level {level})\n"
+                    f"✅ Synced roles for {target_member.mention} (Level {level})\n"
                     f"**Roles added:** {', '.join(roles_added)}"
                 )
             else:
                 await interaction.followup.send(
-                    f"{target_member.mention} (Level {level}) already has all eligible role rewards."
+                    f"✅ {target_member.mention} (Level {level}) already has all eligible role rewards."
                 )
+                
+        except discord.NotFound:
+            print(f"[SYNC] Interaction or message not found - may have timed out")
+            # Can't respond if interaction is gone
         except Exception as e:
-            print(f"Error in sync command: {e}")
+            print(f"[SYNC] Unexpected error in sync command: {e}")
             traceback.print_exc()
             try:
-                await interaction.followup.send(f"❌ Error syncing roles: {e}")
-            except:
-                # If followup fails, try to edit the original response
-                try:
-                    await interaction.edit_original_response(content=f"❌ Error syncing roles: {e}")
-                except:
-                    print("Could not send error message to user")
+                await interaction.followup.send(f"❌ Error syncing roles: {str(e)[:100]}", ephemeral=True)
+            except Exception as followup_error:
+                print(f"[SYNC] Could not send error message: {followup_error}")
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(XPSync(bot))

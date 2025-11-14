@@ -24,17 +24,21 @@ class AvatarCommands(commands.Cog):
             await self.session.close()
     
     def get_avatar_url(self, user, avatar_type_choice):
-        """Helper to get the correct avatar URL based on user choice."""
+        """Returns a valid avatar object (never None)."""
         use_global = avatar_type_choice and avatar_type_choice.value == "global"
-        
+
+        # always safe
         if isinstance(user, discord.Member) and not use_global and user.guild_avatar:
-            return user.display_avatar
+            return user.guild_avatar
         else:
-            return user.avatar if user.avatar else user.default_avatar
-    
+            return user.display_avatar
+
     # Create the main avatar command group
     avatar_group = app_commands.Group(name="avatar", description="Avatar manipulation commands")
-    
+
+    # ----------------------------------------------------------------------
+    # /avatar show
+    # ----------------------------------------------------------------------
     @avatar_group.command(name="show", description="Show your avatar or another user's avatar")
     @app_commands.describe(
         user="The user whose avatar to show (defaults to you)",
@@ -47,29 +51,28 @@ class AvatarCommands(commands.Cog):
         ]
     )
     async def avatar_show(self, interaction: discord.Interaction, user: discord.User = None, avatar_type: app_commands.Choice[str] = None):
+        await interaction.response.defer(thinking=True)
+
         target = user or interaction.user
-        use_global = avatar_type and avatar_type.value == "global"
-        
-        if isinstance(target, discord.Member) and not use_global and target.guild_avatar:
-            avatar_url = target.display_avatar.url
-            avatar_type_str = "Server Avatar"
-        else:
-            avatar_url = target.avatar.url if target.avatar else target.default_avatar.url
-            avatar_type_str = "Global Avatar"
-        
+        avatar = self.get_avatar_url(target, avatar_type)
+        avatar_url = avatar.url
+
         embed_color = discord.Color.blue()
         if self.bot.get_cog("EmbedColor"):
             embed_color = self.bot.get_cog("EmbedColor").get_user_color(interaction.user)
         
         embed = discord.Embed(
-            title=f"{target.display_name}'s {avatar_type_str}",
+            title=f"{target.display_name}'s Avatar",
             color=embed_color
         )
         embed.set_image(url=avatar_url)
         embed.add_field(name="Direct Link", value=f"[Open Avatar]({avatar_url})")
-        
-        await interaction.response.send_message(embed=embed, ephemeral=False)
-    
+
+        await interaction.followup.send(embed=embed)
+
+    # ----------------------------------------------------------------------
+    # /avatar bitcrush
+    # ----------------------------------------------------------------------
     @avatar_group.command(name="bitcrush", description="Bitcrush a user's avatar to a lower bits-per-pixel value")
     @app_commands.describe(
         user="The user whose avatar to bitcrush (defaults to you)",
@@ -83,15 +86,15 @@ class AvatarCommands(commands.Cog):
         ]
     )
     async def avatar_bitcrush(self, interaction: discord.Interaction, bpp: int = 8, user: discord.User = None, avatar_type: app_commands.Choice[str] = None):
+        await interaction.response.defer(thinking=True)
+
         user = user or interaction.user
         
         if bpp < 1 or bpp > 8:
-            await interaction.response.send_message("Please choose a bit depth between 1 and 8.", ephemeral=True)
+            await interaction.followup.send("Please choose a bit depth between 1 and 8.", ephemeral=True)
             return
         
         try:
-            await interaction.response.defer(thinking=True)
-            
             avatar = self.get_avatar_url(user, avatar_type)
             avatar_url = avatar.with_format("png").with_size(512)
             
@@ -99,23 +102,19 @@ class AvatarCommands(commands.Cog):
                 self.session = aiohttp.ClientSession()
             
             async with self.session.get(str(avatar_url)) as resp:
-                if resp.status != 200:
-                    raise Exception(f"HTTP {resp.status} while fetching avatar")
+                resp.raise_for_status()
                 image_bytes = await resp.read()
             
             crushed_bytes = await asyncio.to_thread(self._bitcrush_image, image_bytes, bpp)
             file = discord.File(io.BytesIO(crushed_bytes), filename=f"bitcrushed_{bpp}bit.png")
             
             await interaction.followup.send(
-                f"{user.display_name}'s avatar, bitcrushed to {bpp} bit(s) per pixel:",
+                f"{user.display_name}'s avatar, bitcrushed to {bpp} bit(s):",
                 file=file
             )
-        except Exception as e:
+        except Exception:
             traceback.print_exc()
-            if not interaction.response.is_done():
-                await interaction.response.send_message("An error occurred while processing the image.", ephemeral=True)
-            else:
-                await interaction.followup.send("An error occurred while processing the image.", ephemeral=True)
+            await interaction.followup.send("An error occurred while processing the image.", ephemeral=True)
     
     def _bitcrush_image(self, image_bytes: bytes, bits: int) -> bytes:
         img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
@@ -125,7 +124,10 @@ class AvatarCommands(commands.Cog):
         crushed.save(out, format="PNG")
         out.seek(0)
         return out.getvalue()
-    
+
+    # ----------------------------------------------------------------------
+    # /avatar explode
+    # ----------------------------------------------------------------------
     @avatar_group.command(name="explode", description="Make a user's avatar explode")
     @app_commands.describe(
         user="The user whose avatar to explode (defaults to you)",
@@ -138,11 +140,11 @@ class AvatarCommands(commands.Cog):
         ]
     )
     async def avatar_explode(self, interaction: discord.Interaction, user: discord.User = None, avatar_type: app_commands.Choice[str] = None):
+        await interaction.response.defer(thinking=True)
+
         user = user or interaction.user
         
         try:
-            await interaction.response.defer(thinking=True)
-            
             avatar = self.get_avatar_url(user, avatar_type)
             avatar_url = avatar.with_format("png").with_size(256)
             
@@ -150,20 +152,16 @@ class AvatarCommands(commands.Cog):
                 self.session = aiohttp.ClientSession()
             
             async with self.session.get(str(avatar_url)) as resp:
-                if resp.status != 200:
-                    raise Exception(f"HTTP {resp.status} while fetching avatar")
+                resp.raise_for_status()
                 avatar_bytes = await resp.read()
             
             exploded_bytes = await asyncio.to_thread(self._explode_avatar, avatar_bytes)
             file = discord.File(io.BytesIO(exploded_bytes), filename="exploded.gif")
             
             await interaction.followup.send(f"{user.display_name} just got exploded!", file=file)
-        except Exception as e:
+        except Exception:
             traceback.print_exc()
-            if not interaction.response.is_done():
-                await interaction.response.send_message("An error occurred while processing the explosion.", ephemeral=True)
-            else:
-                await interaction.followup.send("An error occurred while processing the explosion.", ephemeral=True)
+            await interaction.followup.send("An error occurred while processing the explosion.", ephemeral=True)
     
     def _explode_avatar(self, avatar_bytes: bytes) -> bytes:
         avatar = Image.open(io.BytesIO(avatar_bytes)).convert("RGBA")
@@ -191,7 +189,10 @@ class AvatarCommands(commands.Cog):
         )
         out.seek(0)
         return out.getvalue()
-    
+
+    # ----------------------------------------------------------------------
+    # /avatar grayscale
+    # ----------------------------------------------------------------------
     @avatar_group.command(name="grayscale", description="Grayscale a user's avatar")
     @app_commands.describe(
         user="The user whose avatar to grayscale (defaults to you)",
@@ -204,20 +205,16 @@ class AvatarCommands(commands.Cog):
         ]
     )
     async def avatar_grayscale(self, interaction: discord.Interaction, user: discord.User = None, avatar_type: app_commands.Choice[str] = None):
+        await interaction.response.defer(thinking=True)
+
         user = user or interaction.user
         
         try:
-            await interaction.response.defer(thinking=True)
-            
             avatar = self.get_avatar_url(user, avatar_type)
             avatar_url = avatar.with_format("png").with_size(512)
             
-            if not self.session or self.session.closed:
-                self.session = aiohttp.ClientSession()
-            
             async with self.session.get(str(avatar_url)) as resp:
-                if resp.status != 200:
-                    raise Exception(f"HTTP {resp.status} while fetching avatar")
+                resp.raise_for_status()
                 image_bytes = await resp.read()
             
             grayscaled_bytes = await asyncio.to_thread(self._grayscale_image, image_bytes)
@@ -227,12 +224,9 @@ class AvatarCommands(commands.Cog):
                 f"{user.display_name}'s avatar, grayscaled:",
                 file=file
             )
-        except Exception as e:
+        except Exception:
             traceback.print_exc()
-            if not interaction.response.is_done():
-                await interaction.response.send_message("An error occurred while processing the image.", ephemeral=True)
-            else:
-                await interaction.followup.send("An error occurred while processing the image.", ephemeral=True)
+            await interaction.followup.send("An error occurred while processing the image.", ephemeral=True)
     
     def _grayscale_image(self, image_bytes: bytes) -> bytes:
         img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
@@ -241,7 +235,10 @@ class AvatarCommands(commands.Cog):
         grayscaled.save(out, format="PNG")
         out.seek(0)
         return out.getvalue()
-    
+
+    # ----------------------------------------------------------------------
+    # /avatar inverse
+    # ----------------------------------------------------------------------
     @avatar_group.command(name="inverse", description="Invert the colors of a user's avatar")
     @app_commands.describe(
         user="The user whose avatar to invert (defaults to you)",
@@ -254,20 +251,16 @@ class AvatarCommands(commands.Cog):
         ]
     )
     async def avatar_inverse(self, interaction: discord.Interaction, user: discord.User = None, avatar_type: app_commands.Choice[str] = None):
+        await interaction.response.defer(thinking=True)
+
         user = user or interaction.user
         
         try:
-            await interaction.response.defer(thinking=True)
-            
             avatar = self.get_avatar_url(user, avatar_type)
             avatar_url = avatar.with_format("png").with_size(512)
             
-            if not self.session or self.session.closed:
-                self.session = aiohttp.ClientSession()
-            
             async with self.session.get(str(avatar_url)) as resp:
-                if resp.status != 200:
-                    raise Exception(f"HTTP {resp.status} while fetching avatar")
+                resp.raise_for_status()
                 image_bytes = await resp.read()
             
             inverted_bytes = await asyncio.to_thread(self._invert_image, image_bytes)
@@ -277,12 +270,9 @@ class AvatarCommands(commands.Cog):
                 f"{user.display_name}'s avatar, color-inverted:",
                 file=file
             )
-        except Exception as e:
+        except Exception:
             traceback.print_exc()
-            if not interaction.response.is_done():
-                await interaction.response.send_message("An error occurred while processing the image.", ephemeral=True)
-            else:
-                await interaction.followup.send("An error occurred while processing the image.", ephemeral=True)
+            await interaction.followup.send("An error occurred while processing the image.", ephemeral=True)
     
     def _invert_image(self, image_bytes: bytes) -> bytes:
         img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
@@ -291,7 +281,10 @@ class AvatarCommands(commands.Cog):
         inverted.save(out, format="PNG")
         out.seek(0)
         return out.getvalue()
-    
+
+    # ----------------------------------------------------------------------
+    # /avatar obamify
+    # ----------------------------------------------------------------------
     @avatar_group.command(name="obamify", description="Turn a user's avatar into a tile-based Obama mosaic")
     @app_commands.describe(
         user="The user whose avatar to obamify (defaults to you)",
@@ -305,21 +298,21 @@ class AvatarCommands(commands.Cog):
         ]
     )
     async def avatar_obamify(self, interaction: discord.Interaction, tile_count: int = 32, user: discord.User = None, avatar_type: app_commands.Choice[str] = None):
+        await interaction.response.defer(thinking=True)
+
         user = user or interaction.user
         
-        if tile_count > 256 or tile_count < 1:
-            await interaction.response.send_message("Tile count must be 1-256", ephemeral=True)
+        if tile_count < 1 or tile_count > 256:
+            await interaction.followup.send("Tile count must be 1–256.", ephemeral=True)
             return
         
         if not os.path.exists(self.obama_path):
-            await interaction.response.send_message("Error: obama.jpg not found.", ephemeral=True)
+            await interaction.followup.send("Error: obama.jpg not found.", ephemeral=True)
             return
         
         try:
-            await interaction.response.defer(thinking=True)
-            
             avatar = self.get_avatar_url(user, avatar_type)
-            avatar_url = str(avatar.url)
+            avatar_url = avatar.url
             
             avatar_img = await self._fetch_avatar(avatar_url)
             obama_img = Image.open(self.obama_path).convert("RGB")
@@ -327,12 +320,9 @@ class AvatarCommands(commands.Cog):
             buf = await asyncio.to_thread(self._generate_mosaic, avatar_img, obama_img, tile_count)
             
             await interaction.followup.send(file=discord.File(buf, filename="obama_mosaic.png"))
-        except Exception as e:
+        except Exception:
             traceback.print_exc()
-            if not interaction.response.is_done():
-                await interaction.response.send_message(f"Error: {e}", ephemeral=True)
-            else:
-                await interaction.followup.send(f"Error: {e}")
+            await interaction.followup.send("An error occurred during mosaic generation.", ephemeral=True)
     
     async def _fetch_avatar(self, url: str) -> Image.Image:
         if not self.session or self.session.closed:
@@ -348,6 +338,7 @@ class AvatarCommands(commands.Cog):
         obama_w, obama_h = obama_img.size
         tile_w = obama_w // tile_count
         tile_h = obama_h // tile_count
+
         avatar_tile = avatar_img.resize((tile_w, tile_h))
         output = Image.new("RGB", (tile_w * tile_count, tile_h * tile_count))
         obama_array = np.array(obama_img)
