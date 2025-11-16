@@ -26,7 +26,12 @@ class BackupXP(commands.Cog):
     
     async def cog_load(self):
         """Check on startup if a backup is due"""
-        await self.check_last_backup()
+        # Get current time in EST
+        now_est = datetime.now(EST)
+        
+        # Only check for backup if it's 10 AM EST
+        if now_est.hour == BACKUP_HOUR:
+            await self.check_last_backup()
     
     def cog_unload(self):
         self.auto_backup_task.cancel()
@@ -54,8 +59,9 @@ class BackupXP(commands.Cog):
         await self.bot.wait_until_ready()
     
     async def check_last_backup(self):
-        """Check if the last backup was over 1 day ago or if no backup exists"""
+        """Check if a backup has been done today at 10 AM EST"""
         now = datetime.now()
+        now_est = datetime.now(EST)
         
         if not os.path.exists(self.last_backup_file):
             # No previous backup — make initial backup
@@ -69,8 +75,10 @@ class BackupXP(commands.Cog):
             except Exception:
                 last_time = datetime.min
         
-        # Only backup if 1+ day has passed
-        if now - last_time >= BACKUP_INTERVAL:
+        # Check if we've already backed up today
+        last_time_est = last_time.astimezone(EST)
+        if last_time_est.date() != now_est.date():
+            # Haven't backed up today yet, so do it now
             await self.create_backup(log_channel=True, reason="Auto daily backup (10 AM EST)")
             await self.cleanup_old_backups()
     
@@ -108,12 +116,7 @@ class BackupXP(commands.Cog):
             )
             
             if log_channel:
-                # Send to original backup channel
-                channel = self.bot.get_channel(BACKUP_CHANNEL_ID)
-                if channel:
-                    await channel.send(msg)
-                
-                # Also send to notification channel
+                # Send to notification channel only
                 notification_channel = self.bot.get_channel(NOTIFICATION_CHANNEL_ID)
                 if notification_channel:
                     await notification_channel.send(msg)
