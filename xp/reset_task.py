@@ -15,7 +15,8 @@ class ResetTask(commands.Cog):
     async def check_resets(self):
         """Check if any leaderboards need to be reset."""
         now = datetime.now(timezone.utc)
-        current_time = int(now.timestamp())
+        notification_channel_id = 1424145004976275617
+        user_id = 252130669919076352
         
         # Daily reset - at midnight UTC
         if self.should_reset_daily(now):
@@ -25,8 +26,9 @@ class ResetTask(commands.Cog):
             if last_reset_date != now.date():
                 reset_leaderboard("daily")
                 print(f"[XP System] Daily leaderboard reset at {now}")
+                await self.send_reset_notification(notification_channel_id, user_id, "Daily")
         
-        # Weekly reset - Sunday at midnight UTC
+        # Weekly reset - Monday at midnight UTC
         if self.should_reset_weekly(now):
             last_reset = get_last_reset("weekly")
             last_reset_week = datetime.fromtimestamp(last_reset, timezone.utc).isocalendar()[1] if last_reset > 0 else None
@@ -34,29 +36,40 @@ class ResetTask(commands.Cog):
             if last_reset_week != current_week:
                 reset_leaderboard("weekly")
                 print(f"[XP System] Weekly leaderboard reset at {now}")
+                await self.send_reset_notification(notification_channel_id, user_id, "Weekly")
         
-        # Monthly reset - Last day of month at midnight UTC
+        # Monthly reset - First day of month at midnight UTC
         if self.should_reset_monthly(now):
             last_reset = get_last_reset("monthly")
             last_reset_month = datetime.fromtimestamp(last_reset, timezone.utc).month if last_reset > 0 else None
             if last_reset_month != now.month:
                 reset_leaderboard("monthly")
                 print(f"[XP System] Monthly leaderboard reset at {now}")
+                await self.send_reset_notification(notification_channel_id, user_id, "Monthly")
+    
+    async def send_reset_notification(self, channel_id, user_id, reset_type):
+        """Send a notification message when a reset occurs."""
+        try:
+            channel = self.bot.get_channel(channel_id)
+            if channel:
+                await channel.send(f"<@{user_id}> {reset_type} leaderboard has been reset! 🔄")
+            else:
+                print(f"[XP System] Could not find channel {channel_id} for reset notification")
+        except Exception as e:
+            print(f"[XP System] Error sending reset notification: {e}")
     
     def should_reset_daily(self, now):
         """Check if it's time for daily reset (00:00 UTC)."""
         return now.hour == 0 and now.minute == 0
     
     def should_reset_weekly(self, now):
-        """Check if it's time for weekly reset (Sunday 00:00 UTC)."""
-        # weekday() returns 6 for Sunday
-        return now.weekday() == 6 and now.hour == 0 and now.minute == 0
+        """Check if it's time for weekly reset (Monday 00:00 UTC)."""
+        # weekday() returns 0 for Monday
+        return now.weekday() == 0 and now.hour == 0 and now.minute == 0
     
     def should_reset_monthly(self, now):
-        """Check if it's time for monthly reset (last day of month 00:00 UTC)."""
-        # Get last day of current month
-        last_day = calendar.monthrange(now.year, now.month)[1]
-        return now.day == last_day and now.hour == 0 and now.minute == 0
+        """Check if it's time for monthly reset (1st day of month 00:00 UTC)."""
+        return now.day == 1 and now.hour == 0 and now.minute == 0
     
     @check_resets.before_loop
     async def before_check_resets(self):
