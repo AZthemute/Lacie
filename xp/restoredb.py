@@ -10,6 +10,7 @@ class RestoreXP(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.base_dir = os.path.dirname(os.path.abspath(__file__))
+        self.db_dir = os.path.join(self.base_dir, "databases")
         self.backup_dir = os.path.join(self.base_dir, "backups")
 
     @app_commands.command(name="restorebackup", description="Restore a lifetime or annual XP database from backup")
@@ -25,7 +26,7 @@ class RestoreXP(commands.Cog):
         if db_type not in ["lifetime", "annual"]:
             return await interaction.followup.send("❌ Invalid database type. Choose either `lifetime` or `annual`.")
 
-        db_path = os.path.join(self.base_dir, f"{db_type}.db")
+        db_path = os.path.join(self.db_dir, f"{db_type}.db")
         backup_path = os.path.join(self.backup_dir, filename)
 
         # Check if the backup file exists
@@ -37,7 +38,7 @@ class RestoreXP(commands.Cog):
 
         async def yes_callback(btn_inter: discord.Interaction):
             if btn_inter.user != interaction.user:
-                await btn_inter.response.send_message("You can’t confirm this action.", ephemeral=True)
+                await btn_inter.response.send_message("You can't confirm this action.", ephemeral=True)
                 return
             confirmed["value"] = True
             await btn_inter.response.edit_message(content=f"✅ Confirmed restore of `{filename}` to `{db_type}.db`.", view=None)
@@ -45,7 +46,7 @@ class RestoreXP(commands.Cog):
 
         async def no_callback(btn_inter: discord.Interaction):
             if btn_inter.user != interaction.user:
-                await btn_inter.response.send_message("You can’t cancel this action.", ephemeral=True)
+                await btn_inter.response.send_message("You can't cancel this action.", ephemeral=True)
                 return
             confirmed["value"] = False
             await btn_inter.response.edit_message(content="❌ Restore cancelled.", view=None)

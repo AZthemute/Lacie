@@ -18,6 +18,7 @@ class BackupXP(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.base_dir = os.path.dirname(os.path.abspath(__file__))
+        self.db_dir = os.path.join(self.base_dir, "databases")
         self.backup_dir = os.path.join(self.base_dir, "backups")
         self.last_backup_file = os.path.join(self.backup_dir, "last_backup.txt")
         os.makedirs(self.backup_dir, exist_ok=True)
@@ -84,8 +85,8 @@ class BackupXP(commands.Cog):
     
     async def create_backup(self, log_channel=False, reason=None):
         """Handles the actual backup logic"""
-        lifetime_db = os.path.join(self.base_dir, "lifetime.db")
-        annual_db = os.path.join(self.base_dir, "annual.db")
+        lifetime_db = os.path.join(self.db_dir, "lifetime.db")
+        annual_db = os.path.join(self.db_dir, "annual.db")
         
         missing = [db for db in [lifetime_db, annual_db] if not os.path.exists(db)]
         if missing:

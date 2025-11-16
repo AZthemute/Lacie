@@ -2,6 +2,10 @@ import sqlite3
 import os
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_DIR = os.path.join(BASE_DIR, "databases")
+
+# Create databases directory if it doesn't exist
+os.makedirs(DB_DIR, exist_ok=True)
 
 def get_db(db_type="lifetime"):
     """
@@ -20,7 +24,7 @@ def get_db(db_type="lifetime"):
         db_type = "lifetime"
     
     db_name = f"{db_type}.db"
-    db_path = os.path.join(BASE_DIR, db_name)
+    db_path = os.path.join(DB_DIR, db_name)
     conn = sqlite3.connect(db_path)
     cur = conn.cursor()
     
