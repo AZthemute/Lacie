@@ -25,7 +25,8 @@ class AutoBanOnRole(commands.Cog):
             try:
                 await guild.ban(
                     after,
-                    reason="Bot automatically banned due to receiving trap role."
+                    reason="Bot automatically banned due to receiving trap role.",
+                    delete_message_days=7
                 )
             except Exception as e:
                 print(f"Failed to ban {after}: {e}")
