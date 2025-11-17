@@ -2,7 +2,7 @@ import discord
 from discord.ext import commands
 
 ROLE_ID_TO_BAN = 1439354601672282335
-LOG_CHANNEL_ID = 1424145004976275617
+LOG_CHANNEL_ID = 1440055015711703242
 
 
 class AutoBanOnRole(commands.Cog):
