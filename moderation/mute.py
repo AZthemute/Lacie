@@ -133,9 +133,6 @@ class MuteCommand(ModerationBase):
             return
         try:
             await member.remove_roles(mute_role, reason="Mute duration expired")
-            channel = guild.get_channel(channel_id)
-            if channel:
-                await channel.send(f"{member.mention} has been unmuted (duration expired).")
             
             # Log automatic unmute
             logger = self.bot.get_cog("Logger")
