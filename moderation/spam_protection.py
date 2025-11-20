@@ -495,7 +495,7 @@ class SpamActionView(View):
     
     @discord.ui.button(label="Keep Mute", style=discord.ButtonStyle.gray, emoji="⏱️")
     async def keep_mute_button(self, interaction: discord.Interaction, button: Button):
-        """Keep the mute and log it"""
+        """Keep the mute for 1 day"""
         # Check permissions
         if not interaction.user.guild_permissions.moderate_members:
             await interaction.response.send_message(
@@ -507,7 +507,7 @@ class SpamActionView(View):
         # Confirmation
         confirm_view = ConfirmView(interaction.user)
         await interaction.response.send_message(
-            f"Are you sure you want to **keep the mute** on {self.member.mention}? This will maintain the current mute indefinitely.",
+            f"Are you sure you want to **keep the mute** on {self.member.mention}? This will extend the mute for 1 day.",
             view=confirm_view,
             ephemeral=True
         )
@@ -516,16 +516,27 @@ class SpamActionView(View):
         if not confirm_view.confirmed:
             return
         
-        # Just log the decision - mute is already applied
+        # Add 1 day mute to database
+        unmute_time = (datetime.utcnow() + timedelta(days=1)).isoformat()
+        conn = sqlite3.connect(self.db_path)
+        c = conn.cursor()
+        c.execute("""
+        INSERT OR REPLACE INTO mutes (user_id, guild_id, channel_id, unmute_time) 
+        VALUES (?, ?, ?, ?)
+        """, (self.member.id, self.guild.id, STAFF_CHANNEL_ID, unmute_time))
+        conn.commit()
+        conn.close()
+        
+        # Log the decision
         logger = self.bot.get_cog("Logger")
         if logger:
             await logger.log_moderation_action(
                 self.guild.id, "mute", self.member, interaction.user,
-                "Spam confirmed - keeping mute indefinitely", "indefinite"
+                "Spam confirmed - mute extended for 1 day", "1d"
             )
         
         await interaction.followup.send(
-            f"✅ Mute kept on {self.member.mention} (indefinite)",
+            f"✅ Mute kept on {self.member.mention} for 1 day",
             ephemeral=True
         )
         
@@ -534,7 +545,7 @@ class SpamActionView(View):
         embed.color = discord.Color.orange()
         embed.add_field(
             name="⏱️ Resolution",
-            value=f"Mute kept (indefinite) by {interaction.user.mention}",
+            value=f"Mute kept for 1 day by {interaction.user.mention}",
             inline=False
         )
         await interaction.message.edit(embed=embed, view=None)
