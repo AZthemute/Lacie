@@ -281,6 +281,14 @@ class SpamProtection(commands.Cog):
             print(f"[ERROR] Failed to mute spammer: {e}")
             return
         
+        # Log the automatic mute action
+        logger = self.bot.get_cog("Logger")
+        if logger:
+            await logger.log_moderation_action(
+                guild.id, "mute", member, self.bot.user,
+                "Automatic spam detection - pending staff review", "pending"
+            )
+        
         # Try to DM the user
         try:
             await member.send(
