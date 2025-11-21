@@ -15,7 +15,14 @@ load_dotenv()
 TOKEN = os.getenv("TOKEN")
 ADMIN_ROLE_ID = int(os.getenv("ADMIN_ROLE_ID"))
 
-bot = commands.Bot(command_prefix="!", intents=discord.Intents.all(), help_command=None)
+bot = commands.Bot(
+    command_prefix="!", 
+    intents=discord.Intents.all(), 
+    help_command=None,
+    activity=discord.Activity(
+        type=discord.ActivityType.playing,
+        name="Paper Lily - Chapter 1"
+    ))
 
 async def load_cogs(folder: str):
     """Load all cogs in the folder except utility files"""

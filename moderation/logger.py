@@ -39,29 +39,21 @@ class Logger(commands.Cog):
                   (guild_id, log_type))
         result = c.fetchone()
         conn.close()
-        print(f"[DEBUG] get_log_channel({guild_id}, {log_type}) -> {result}")
         return result[0] if result else None
     
     async def send_log(self, guild_id: int, log_type: str, embed: discord.Embed):
         """Send a log embed to the configured channel"""
-        print(f"[DEBUG] send_log called: guild_id={guild_id}, log_type={log_type}")
         
         channel_id = self.get_log_channel(guild_id, log_type)
         if not channel_id:
-            print(f"[DEBUG] No channel configured for {log_type} in guild {guild_id}")
             return
         
-        print(f"[DEBUG] Looking for channel {channel_id}")
         channel = self.bot.get_channel(channel_id)
         if not channel:
-            print(f"[DEBUG] Channel {channel_id} not found via bot.get_channel")
             return
-        
-        print(f"[DEBUG] Found channel: {channel.name} ({channel.id})")
         
         try:
             msg = await channel.send(embed=embed)
-            print(f"[DEBUG] Successfully sent log message {msg.id} to {channel.name}")
         except discord.Forbidden as e:
             print(f"[ERROR] Missing permissions to send log in channel {channel_id}: {e}")
         except Exception as e:
@@ -151,15 +143,7 @@ class Logger(commands.Cog):
         await self.send_log(before.guild.id, "message_edit", embed)
     
     @commands.Cog.listener()
-    async def on_member_join(self, member: discord.Member):
-        """Log member joins"""
-        print(f"[DEBUG] ========================================")
-        print(f"[DEBUG] on_member_join triggered!")
-        print(f"[DEBUG] Member: {member} ({member.id})")
-        print(f"[DEBUG] Guild: {member.guild.name} ({member.guild.id})")
-        print(f"[DEBUG] Bot user: {self.bot.user}")
-        print(f"[DEBUG] ========================================")
-        
+    async def on_member_join(self, member: discord.Member):        
         try:
             embed = discord.Embed(
                 title="Member Joined",
@@ -178,21 +162,11 @@ class Logger(commands.Cog):
             
             embed.set_thumbnail(url=member.display_avatar.url)
             embed.set_footer(text=f"User ID: {member.id}")
-
-            print(f"[DEBUG] Embed created successfully")
-            print(f"[DEBUG] About to call send_log...")
             
             await self.send_log(member.guild.id, "member_join", embed)
             
-            print(f"[DEBUG] send_log completed")
-
         except Exception as e:
             error_text = f"⚠️ **Error while logging member join:**\n`{type(e).__name__}: {e}`"
-
-            print(f"[ERROR] ========================================")
-            print(f"[ERROR] Failed to log member join for {member}")
-            print(f"[ERROR] Exception: {type(e).__name__}: {e}")
-            print(f"[ERROR] ========================================")
             traceback.print_exc()
 
             # Attempt to send the error to the designated debug channel
@@ -200,7 +174,6 @@ class Logger(commands.Cog):
                 channel = member.guild.get_channel(1424145004976275617)
                 if channel:
                     await channel.send(error_text)
-                    print(f"[DEBUG] Sent error to debug channel")
                 else:
                     print("[ERROR] Could not find error logging channel (1424145004976275617).")
             except Exception as send_err:
