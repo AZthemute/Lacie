@@ -4,7 +4,6 @@ from discord.ext import commands
 class Welcome(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        self.debug_channel_id = 1424145004976275617
     
     @commands.Cog.listener()
     async def on_member_join(self, member):

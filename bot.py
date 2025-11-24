@@ -83,7 +83,6 @@ async def on_ready():
     await load_cogs("wordle")
     await load_cogs("reminders")
 
-
     # Sync slash commands after loading cogs
     try:
         synced = await bot.tree.sync()
