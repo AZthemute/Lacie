@@ -39,11 +39,23 @@ LOG_TYPES = [
 class LogConfig(ModerationBase):
     """Commands to configure logging settings"""
     
+    def __init__(self, bot):
+        super().__init__(bot)
+        # Create the excluded channels table if it doesn't exist
+        self.c.execute("""
+            CREATE TABLE IF NOT EXISTS log_excluded_channels (
+                guild_id INTEGER NOT NULL,
+                channel_id INTEGER NOT NULL,
+                PRIMARY KEY (guild_id, channel_id)
+            )
+        """)
+        self.conn.commit()
+    
     @commands.group(name="log", invoke_without_command=True)
     @ModerationBase.is_admin()
     async def log(self, ctx):
         """Logging configuration commands"""
-        await ctx.send("Use `!log set`, `!log list`, or `!log remove` to configure logging.")
+        await ctx.send("Use `!log set`, `!log list`, `!log exclude`, or `!log remove` to configure logging.")
     
     @log.command(name="set")
     @ModerationBase.is_admin()
@@ -77,6 +89,91 @@ class LogConfig(ModerationBase):
         self.conn.commit()
         
         await ctx.send(f"✅ Set `{log_type}` logging to {channel.mention}")
+    
+    @log.command(name="exclude")
+    @ModerationBase.is_admin()
+    async def log_exclude(self, ctx, channel_id: int):
+        """
+        Exclude a channel from being logged.
+        
+        Usage: !log exclude <channel_id>
+        Example: !log exclude 123456789012345678
+        
+        Events from this channel will not be logged.
+        """
+        # Verify the channel exists in the guild
+        channel = ctx.guild.get_channel(channel_id)
+        if not channel:
+            await ctx.send(f"❌ Channel with ID `{channel_id}` not found in this server.")
+            return
+        
+        # Check if already excluded
+        self.c.execute("SELECT channel_id FROM log_excluded_channels WHERE guild_id = ? AND channel_id = ?",
+                      (ctx.guild.id, channel_id))
+        if self.c.fetchone():
+            await ctx.send(f"❌ {channel.mention} (`{channel_id}`) is already excluded from logging.")
+            return
+        
+        # Add to excluded channels
+        self.c.execute("INSERT INTO log_excluded_channels (guild_id, channel_id) VALUES (?, ?)",
+                      (ctx.guild.id, channel_id))
+        self.conn.commit()
+        
+        await ctx.send(f"✅ Excluded {channel.mention} (`{channel_id}`) from logging.")
+    
+    @log.command(name="unexclude")
+    @ModerationBase.is_admin()
+    async def log_unexclude(self, ctx, channel_id: int):
+        """
+        Remove a channel from the exclusion list.
+        
+        Usage: !log unexclude <channel_id>
+        Example: !log unexclude 123456789012345678
+        """
+        self.c.execute("DELETE FROM log_excluded_channels WHERE guild_id = ? AND channel_id = ?",
+                      (ctx.guild.id, channel_id))
+        
+        if self.c.rowcount == 0:
+            await ctx.send(f"❌ Channel ID `{channel_id}` is not in the exclusion list.")
+        else:
+            self.conn.commit()
+            channel = ctx.guild.get_channel(channel_id)
+            channel_name = channel.mention if channel else f"Channel ID `{channel_id}`"
+            await ctx.send(f"✅ Removed {channel_name} from the exclusion list.")
+    
+    @log.command(name="excluded")
+    @ModerationBase.is_admin()
+    async def log_excluded(self, ctx):
+        """List all excluded channels"""
+        self.c.execute("SELECT channel_id FROM log_excluded_channels WHERE guild_id = ? ORDER BY channel_id",
+                      (ctx.guild.id,))
+        results = self.c.fetchall()
+        
+        if not results:
+            await ctx.send("❌ No channels are excluded from logging.")
+            return
+        
+        embed = discord.Embed(
+            title=f"Excluded Channels - {ctx.guild.name}",
+            description="Events from these channels will not be logged.",
+            color=discord.Color.orange()
+        )
+        
+        channels_list = []
+        for (channel_id,) in results:
+            channel = ctx.guild.get_channel(channel_id)
+            if channel:
+                channels_list.append(f"{channel.mention} (`{channel_id}`)")
+            else:
+                channels_list.append(f"Deleted Channel (`{channel_id}`)")
+        
+        embed.add_field(
+            name=f"Excluded Channels ({len(channels_list)})",
+            value="\n".join(channels_list) if channels_list else "None",
+            inline=False
+        )
+        
+        await ctx.send(embed=embed)
     
     @log.command(name="remove")
     @ModerationBase.is_admin()

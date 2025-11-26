@@ -17,7 +17,7 @@ class Logger(commands.Cog):
         self.message_cache = {}
     
     def initialize_db(self):
-        """Create log_config table for storing logging settings"""
+        """Create log_config and log_excluded_channels tables"""
         conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
         c.execute("""
@@ -28,8 +28,25 @@ class Logger(commands.Cog):
             PRIMARY KEY (guild_id, log_type)
         )
         """)
+        c.execute("""
+        CREATE TABLE IF NOT EXISTS log_excluded_channels (
+            guild_id INTEGER NOT NULL,
+            channel_id INTEGER NOT NULL,
+            PRIMARY KEY (guild_id, channel_id)
+        )
+        """)
         conn.commit()
         conn.close()
+    
+    def is_channel_excluded(self, guild_id: int, channel_id: int) -> bool:
+        """Check if a channel is excluded from logging"""
+        conn = sqlite3.connect(self.db_path)
+        c = conn.cursor()
+        c.execute("SELECT 1 FROM log_excluded_channels WHERE guild_id = ? AND channel_id = ?",
+                  (guild_id, channel_id))
+        result = c.fetchone()
+        conn.close()
+        return result is not None
     
     def get_log_channel(self, guild_id: int, log_type: str) -> Optional[int]:
         """Get the channel ID for a specific log type in a guild"""
@@ -41,8 +58,12 @@ class Logger(commands.Cog):
         conn.close()
         return result[0] if result else None
     
-    async def send_log(self, guild_id: int, log_type: str, embed: discord.Embed):
-        """Send a log embed to the configured channel"""
+    async def send_log(self, guild_id: int, log_type: str, embed: discord.Embed, source_channel_id: Optional[int] = None):
+        """Send a log embed to the configured channel (if source channel is not excluded)"""
+        
+        # Check if the source channel is excluded
+        if source_channel_id and self.is_channel_excluded(guild_id, source_channel_id):
+            return
         
         channel_id = self.get_log_channel(guild_id, log_type)
         if not channel_id:
@@ -84,7 +105,7 @@ class Logger(commands.Cog):
         
         embed.set_footer(text=f"User ID: {message.author.id}")
         
-        await self.send_log(message.guild.id, "message_delete", embed)
+        await self.send_log(message.guild.id, "message_delete", embed, message.channel.id)
     
     @commands.Cog.listener()
     async def on_bulk_message_delete(self, messages):
@@ -114,7 +135,7 @@ class Logger(commands.Cog):
         if len(messages) > 5:
             embed.add_field(name="Note", value=f"Showing 5 of {len(messages)} deleted messages", inline=False)
         
-        await self.send_log(guild.id, "message_bulk_delete", embed)
+        await self.send_log(guild.id, "message_bulk_delete", embed, channel.id)
     
     @commands.Cog.listener()
     async def on_message_edit(self, before: discord.Message, after: discord.Message):
@@ -140,7 +161,7 @@ class Logger(commands.Cog):
         
         embed.set_footer(text=f"User ID: {before.author.id}")
         
-        await self.send_log(before.guild.id, "message_edit", embed)
+        await self.send_log(before.guild.id, "message_edit", embed, before.channel.id)
     
     @commands.Cog.listener()
     async def on_member_join(self, member: discord.Member):        
@@ -371,7 +392,7 @@ class Logger(commands.Cog):
                 timestamp = datetime.now(timezone.utc)
             )
             embed.set_footer(text=f"User ID: {member.id}")
-            await self.send_log(member.guild.id, "voice_join", embed)
+            await self.send_log(member.guild.id, "voice_join", embed, after.channel.id)
         
         # Member left a voice channel
         elif before.channel is not None and after.channel is None:
@@ -382,7 +403,7 @@ class Logger(commands.Cog):
                 timestamp = datetime.now(timezone.utc)
             )
             embed.set_footer(text=f"User ID: {member.id}")
-            await self.send_log(member.guild.id, "voice_leave", embed)
+            await self.send_log(member.guild.id, "voice_leave", embed, before.channel.id)
         
         # Member moved between voice channels
         elif before.channel is not None and after.channel is not None and before.channel != after.channel:
@@ -393,7 +414,9 @@ class Logger(commands.Cog):
                 timestamp = datetime.now(timezone.utc)
             )
             embed.set_footer(text=f"User ID: {member.id}")
-            await self.send_log(member.guild.id, "voice_move", embed)
+            # For moves, check if either channel is excluded
+            if not self.is_channel_excluded(member.guild.id, before.channel.id) and not self.is_channel_excluded(member.guild.id, after.channel.id):
+                await self.send_log(member.guild.id, "voice_move", embed)
     
     @commands.Cog.listener()
     async def on_guild_channel_create(self, channel):
